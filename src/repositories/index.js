@@ -1,0 +1,8 @@
+export { walletRepo } from './wallet.repo'
+export { categoryRepo } from './category.repo'
+export { transactionRepo } from './transaction.repo'
+export { transactionSplitRepo } from './transaction-split.repo'
+export { debtRepo } from './debt.repo'
+export { debtPaymentRepo } from './debt-payment.repo'
+export { splitBillRepo } from './split-bill.repo'
+export { splitBillMemberRepo } from './split-bill-member.repo'
