@@ -1,9 +1,10 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { supabase } from '../lib/supabase'
 import BaseButton from '../components/ui/BaseButton.vue'
+import { useAuthStore } from '../stores/auth'
 
+const auth = useAuthStore()
 const router = useRouter()
 const email = ref('')
 const password = ref('')
@@ -15,11 +16,11 @@ async function submit() {
   loading.value = true
   error.value = ''
   try {
-    const fn = isRegister.value
-      ? supabase.auth.signUp({ email: email.value, password: password.value })
-      : supabase.auth.signInWithPassword({ email: email.value, password: password.value })
-    const { error: err } = await fn
-    if (err) throw err
+    if (isRegister.value) {
+      await auth.signUp(email.value, password.value)
+    } else {
+      await auth.signIn(email.value, password.value)
+    }
     router.push({ name: 'dashboard' })
   } catch (e) {
     error.value = e.message

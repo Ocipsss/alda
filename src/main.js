@@ -2,18 +2,33 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
-import { supabase } from './lib/supabase'
+import { useAuthStore } from './stores/auth'
 import './style.css'
 
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 
-// Global auth guard minimal
-router.beforeEach(async (to) => {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (to.meta.requiresAuth && !session) return { name: 'login' }
-  if (to.name === 'login' && session) return { name: 'dashboard' }
-})
+// Tampilkan error di layar jika ada crash
+app.config.errorHandler = (err) => {
+  console.error(err)
+  alert('App Error: ' + err.message)
+}
 
-app.mount('#app')
+async function bootstrap() {
+  const auth = useAuthStore()
+  try {
+    await auth.init()
+  } catch (e) {
+    alert('Gagal inisialisasi Auth: ' + e.message)
+  }
+
+  router.beforeEach((to) => {
+    if (to.meta.requiresAuth && !auth.isAuthenticated) return { name: 'login' }
+    if (to.name === 'login' && auth.isAuthenticated) return { name: 'dashboard' }
+  })
+
+  app.mount('#app')
+}
+
+bootstrap()
