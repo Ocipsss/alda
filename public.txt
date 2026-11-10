@@ -1,0 +1,12 @@
+public
+├── 192x192.png
+├── 512x512-maskable.png
+├── 512x512.png
+├── assets
+│   ├── alda-horizontal-color.svg
+│   ├── alda-icon-color.svg
+│   └── alda-inverse.svg
+├── favicon.svg
+└── icons.svg
+
+1 directories, 8 files

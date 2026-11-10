@@ -9,20 +9,33 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icons/*.png'],
+      includeAssets: ['favicon.svg', '192x192.png', '512x512.png', '512x512-maskable.png'],
       manifest: {
         name: 'Alda — Cash Flow Manager',
         short_name: 'Alda',
         description: 'Offline-first multi-wallet cash flow management',
-        theme_color: '#0f172a',
+        theme_color: '#0f172a', // Menyesuaikan warna dark background
         background_color: '#0f172a',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+          {
+            src: '/192x192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: '/512x512.png',
+            sizes: '512x512',
+            type: 'image/png'
+          },
+          {
+            src: '/512x512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
+          }
         ]
       },
       workbox: {
