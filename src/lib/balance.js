@@ -4,7 +4,7 @@
  * @param {Array} p.wallets
  * @param {Array} p.transactions
  * @param {Array} p.splits
- * @param {Array} p.debts          - internal debts yang mempengaruhi wallet
+ * @param {Array} p.debts          - internal & external debts
  * @param {Array} p.debtPayments
  * @returns {Record<string, number>} map wallet_id -> saldo
  */
@@ -14,8 +14,6 @@ export function computeBalances({ wallets, transactions, splits, debts = [], deb
     if (w.is_deleted) continue
     map[w.id] = Number(w.initial_balance || 0)
   }
-
-  const txById = new Map(transactions.map(t => [t.id, t]))
 
   for (const t of transactions) {
     if (t.is_deleted) continue
@@ -41,29 +39,50 @@ export function computeBalances({ wallets, transactions, splits, debts = [], deb
     }
   }
 
-  // Internal debts dari expense split pinjaman
+  // Debts: internal + external
   for (const d of debts) {
     if (d.is_deleted) continue
-    if (d.source !== 'internal') continue
-    // utang internal: counterpart_wallet_id meminjamkan → kurangi counterpart
-    // piutang internal: counterpart_wallet_id berutang → tambah counterpart
-    if (d.type === 'utang' && map[d.counterpart_wallet_id] !== undefined) {
-      map[d.counterpart_wallet_id] -= Number(d.principal)
-      // sisi peminjam sudah terpotong di split expense, jadi tidak dobel
-    } else if (d.type === 'piutang' && map[d.counterpart_wallet_id] !== undefined) {
-      map[d.counterpart_wallet_id] += Number(d.principal)
+
+    if (d.source === 'internal') {
+      // utang internal: counterpart (pemberi pinjam) berkurang
+      // piutang internal: counterpart (peminjam) bertambah
+      if (d.type === 'utang' && map[d.counterpart_wallet_id] !== undefined) {
+        map[d.counterpart_wallet_id] -= Number(d.principal)
+      } else if (d.type === 'piutang' && map[d.counterpart_wallet_id] !== undefined) {
+        map[d.counterpart_wallet_id] += Number(d.principal)
+      }
+    } else {
+      // External debts
+      // utang eksternal: dapat uang → saldo naik
+      // piutang eksternal: beri uang → saldo turun
+      if (d.type === 'utang' && d.counterpart_wallet_id && map[d.counterpart_wallet_id] !== undefined) {
+        map[d.counterpart_wallet_id] += Number(d.principal)
+      } else if (d.type === 'piutang' && d.counterpart_wallet_id && map[d.counterpart_wallet_id] !== undefined) {
+        map[d.counterpart_wallet_id] -= Number(d.principal)
+      }
     }
   }
 
-  // Pelunasan internal
+  // Pelunasan
   for (const p of debtPayments) {
+    if (p.is_deleted) continue
     const debt = debts.find(d => d.id === p.debt_id)
-    if (!debt || debt.source !== 'internal' || debt.is_deleted) continue
-    if (debt.type === 'utang' && map[p.wallet_id] !== undefined) {
-      // pelunasan utang internal → wallet penyetor +balance (mengembalikan ke counterpart)
-      map[p.wallet_id] += Number(p.amount)
-    } else if (debt.type === 'piutang' && map[p.wallet_id] !== undefined) {
-      map[p.wallet_id] -= Number(p.amount)
+    if (!debt || debt.is_deleted) continue
+
+    if (debt.source === 'internal') {
+      if (debt.type === 'utang' && map[p.wallet_id] !== undefined) {
+        map[p.wallet_id] += Number(p.amount)
+      } else if (debt.type === 'piutang' && map[p.wallet_id] !== undefined) {
+        map[p.wallet_id] -= Number(p.amount)
+      }
+    } else {
+      // utang eksternal dibayar → saldo turun
+      // piutang eksternal diterima → saldo naik
+      if (debt.type === 'utang' && map[p.wallet_id] !== undefined) {
+        map[p.wallet_id] -= Number(p.amount)
+      } else if (debt.type === 'piutang' && map[p.wallet_id] !== undefined) {
+        map[p.wallet_id] += Number(p.amount)
+      }
     }
   }
 

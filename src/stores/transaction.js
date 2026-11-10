@@ -18,6 +18,15 @@ export const useTransactionStore = defineStore('transaction', () => {
       .sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.updated_at > a.updated_at ? 1 : -1))
   )
 
+  const activeDebts = computed(() =>
+    debts.value
+      .filter(d => !d.is_deleted)
+      .sort((a, b) => (b.updated_at > a.updated_at ? 1 : -1))
+  )
+
+  const utangs = computed(() => activeDebts.value.filter(d => d.type === 'utang'))
+  const piutangs = computed(() => activeDebts.value.filter(d => d.type === 'piutang'))
+
   async function loadLocal() {
     loading.value = true
     try {
@@ -46,7 +55,7 @@ export const useTransactionStore = defineStore('transaction', () => {
     })
   }
 
-  // ---------- CRUD ----------
+  // ---------- TRANSACTIONS ----------
 
   async function createIncome({ amount, date, wallet_id, category_id, note }) {
     const auth = useAuthStore()
@@ -75,15 +84,6 @@ export const useTransactionStore = defineStore('transaction', () => {
     return tx
   }
 
-  /**
-   * Expense dengan dukungan multi-wallet split.
-   * @param {Object} p
-   * @param {number} p.amount          total pengeluaran
-   * @param {string} p.date
-   * @param {string} p.category_id
-   * @param {string} [p.note]
-   * @param {Array<{wallet_id, amount, is_loan}>} p.payments  minimal 1
-   */
   async function createExpense({ amount, date, category_id, note, payments }) {
     const auth = useAuthStore()
     const now = new Date().toISOString()
@@ -116,30 +116,30 @@ export const useTransactionStore = defineStore('transaction', () => {
         wallet_id: p.wallet_id,
         amount: Number(p.amount),
         is_loan: !!p.is_loan,
-        linked_debt_id: p.is_loan ? null : null, // diisi setelah debt dibuat
+        linked_debt_id: null,
         created_at: now,
         updated_at: now,
         _pending: true
       })
 
-      if (p.is_loan) {
-        // Wallet pembayar tambahan meminjam dari wallet utama
+      if (p.is_loan && p.wallet_id !== primary.wallet_id) {
         const debtId = uid()
         debtRows.push({
           id: debtId,
           user_id: auth.user.id,
-          type: 'utang', // pembayar meminjam → utang ke primary wallet
-          party: primary.wallet_id, // wallet pemberi pinjaman
+          type: 'utang',
+          party: primary.wallet_id,
           source: 'internal',
           principal: Number(p.amount),
           remaining: Number(p.amount),
           counterpart_wallet_id: primary.wallet_id,
+          note: 'Pembayaran patungan: ' + (note || ''),
+          due_date: null,
           is_deleted: false,
           created_at: now,
           updated_at: now,
           _pending: true
         })
-        // link split ke debt
         splitRows[splitRows.length - 1].linked_debt_id = debtId
       }
     })
@@ -190,7 +190,6 @@ export const useTransactionStore = defineStore('transaction', () => {
     await db.transaction('rw', db.transactions, db.transaction_splits, db.debts, async () => {
       await db.transactions.update(id, { is_deleted: true, updated_at: now, _pending: true })
 
-      // Soft-delete splits & linked debts
       const relatedSplits = await db.transaction_splits.where({ transaction_id: id }).toArray()
       for (const s of relatedSplits) {
         await db.transaction_splits.update(s.id, { updated_at: now, _pending: true })
@@ -204,6 +203,112 @@ export const useTransactionStore = defineStore('transaction', () => {
     syncAll().catch(() => {})
   }
 
+  // ---------- DEBTS ----------
+
+  async function createDebt({
+    type, source, party, principal, wallet_id,
+    counterpart_wallet_id = null, due_date = null, note = null, date
+  }) {
+    const auth = useAuthStore()
+    const now = new Date().toISOString()
+    const debtId = uid()
+
+    const debt = {
+      id: debtId,
+      user_id: auth.user.id,
+      type,
+      source,
+      party,
+      principal: Number(principal),
+      remaining: Number(principal),
+      counterpart_wallet_id: source === 'internal' ? counterpart_wallet_id : wallet_id,
+      note: note || null,
+      due_date,
+      is_deleted: false,
+      created_at: now,
+      updated_at: now,
+      _pending: true
+    }
+
+    // Buat transaksi "opening" agar histori tercatat
+    const txId = uid()
+    const tx = {
+      id: txId,
+      user_id: auth.user.id,
+      type: type === 'utang' ? 'income' : 'expense',
+      amount: Number(principal),
+      date: date || new Date().toISOString().slice(0, 10),
+      wallet_id,
+      to_wallet_id: null,
+      category_id: null,
+      note: (type === 'utang' ? 'Pinjam: ' : 'Piutang: ') + party + (note ? ' — ' + note : ''),
+      is_deleted: false,
+      created_at: now,
+      updated_at: now,
+      _pending: true
+    }
+
+    await db.transaction('rw', db.debts, db.transactions, async () => {
+      await db.debts.put(debt)
+      await db.transactions.put(tx)
+    })
+
+    await loadLocal()
+    syncAll().catch(() => {})
+    return { debt, tx }
+  }
+
+  async function payDebt({ debt_id, wallet_id, amount, date, note = null }) {
+    const auth = useAuthStore()
+    const now = new Date().toISOString()
+    const debt = await db.debts.get(debt_id)
+    if (!debt) throw new Error('Debt tidak ditemukan')
+
+    const payAmount = Math.min(Number(amount), Number(debt.remaining))
+    const newRemaining = Number(debt.remaining) - payAmount
+
+    const payment = {
+      id: uid(),
+      debt_id,
+      wallet_id,
+      amount: payAmount,
+      date: date || new Date().toISOString().slice(0, 10),
+      note: note || null,
+      is_deleted: false,
+      created_at: now,
+      updated_at: now,
+      _pending: true
+    }
+
+    await db.transaction('rw', db.debt_payments, db.debts, async () => {
+      await db.debt_payments.put(payment)
+      await db.debts.update(debt_id, {
+        remaining: newRemaining,
+        updated_at: now,
+        _pending: true
+      })
+    })
+
+    await loadLocal()
+    syncAll().catch(() => {})
+    return payment
+  }
+
+  async function softDeleteDebt(debtId) {
+    const debt = await db.debts.get(debtId)
+    if (!debt) return
+    const now = new Date().toISOString()
+    await db.debts.update(debtId, { is_deleted: true, updated_at: now, _pending: true })
+    await loadLocal()
+    syncAll().catch(() => {})
+  }
+
+  function paymentsOf(debtId) {
+    return debtPayments.value
+      .filter(p => p.debt_id === debtId && !p.is_deleted)
+      .sort((a, b) => (b.date > a.date ? 1 : -1))
+  }
+
   // ---------- SYNC ----------
   async function syncAll() {
     const auth = useAuthStore()
@@ -211,7 +316,8 @@ export const useTransactionStore = defineStore('transaction', () => {
     await Promise.all([
       syncTable('transactions'),
       syncTable('transaction_splits'),
-      syncTable('debts')
+      syncTable('debts'),
+      syncTable('debt_payments')
     ])
     await loadLocal()
   }
@@ -246,8 +352,11 @@ export const useTransactionStore = defineStore('transaction', () => {
   }
 
   return {
-    transactions, splits, debts, debtPayments, activeTransactions, loading,
-    loadLocal, balances, createIncome, createExpense, createTransfer,
-    softDeleteTransaction, syncAll
+    transactions, splits, debts, debtPayments, loading,
+    activeTransactions, activeDebts, utangs, piutangs,
+    loadLocal, balances,
+    createIncome, createExpense, createTransfer, softDeleteTransaction,
+    createDebt, payDebt, softDeleteDebt, paymentsOf,
+    syncAll
   }
 })

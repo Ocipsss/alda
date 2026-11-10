@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Wallet as WalletIcon, LogOut, RefreshCw, ScrollText } from 'lucide-vue-next'
+import { Plus, Wallet as WalletIcon, LogOut, RefreshCw, ScrollText, HandCoins } from 'lucide-vue-next'
 import BaseButton from '../components/ui/BaseButton.vue'
 import WalletCard from '../components/wallet/WalletCard.vue'
 import WalletFormModal from '../components/wallet/WalletFormModal.vue'
@@ -101,6 +101,9 @@ function fmt(v) {
         <p class="text-xs text-slate-500 truncate max-w-[220px]">{{ auth.user?.email }}</p>
       </div>
       <div class="flex gap-1">
+        <button class="p-2 rounded-lg hover:bg-slate-100" @click="router.push({ name: 'debts' })" title="Pinjaman">
+          <HandCoins class="w-5 h-5 text-slate-600" />
+        </button>
         <button class="p-2 rounded-lg hover:bg-slate-100" @click="refreshAll">
           <RefreshCw class="w-5 h-5 text-slate-600" :class="{ 'animate-spin': syncing }" />
         </button>

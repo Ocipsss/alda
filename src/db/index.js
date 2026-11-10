@@ -8,7 +8,7 @@ db.version(1).stores({
   transactions:      'id, user_id, type, date, wallet_id, category_id, is_deleted, updated_at, _pending',
   transaction_splits:'id, transaction_id, wallet_id, is_loan, _pending',
   debts:             'id, user_id, type, source, is_deleted, updated_at, _pending',
-  debt_payments:     'id, debt_id, wallet_id, date, updated_at, _pending',
+  debt_payments:     'id, debt_id, wallet_id, date, is_deleted, updated_at, _pending',
   split_bills:       'id, transaction_id, updated_at, _pending',
   split_bill_members:'id, split_bill_id, paid_status, _pending',
   sync_meta:         'key'
