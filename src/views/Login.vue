@@ -10,23 +10,50 @@ const email = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
+const errorCode = ref('')
 const isRegister = ref(false)
 
 async function submit() {
   loading.value = true
   error.value = ''
+  errorCode.value = ''
+
   try {
     if (isRegister.value) {
-      await auth.signUp(email.value, password.value)
+      await auth.signUp(email.value.trim(), password.value)
     } else {
-      await auth.signIn(email.value, password.value)
+      await auth.signIn(email.value.trim(), password.value)
     }
     router.push({ name: 'dashboard' })
   } catch (e) {
-    error.value = e.message
+    errorCode.value = e.code || e.status || ''
+    error.value = e.message || 'Terjadi kesalahan'
+
+    console.error('[Login] Failed:', {
+      code: e.code,
+      status: e.status,
+      message: e.message,
+      isRegister: isRegister.value
+    })
+
+    if (e.message?.toLowerCase().includes('invalid login credentials')) {
+      error.value = 'Email atau password salah. Cek huruf besar/kecil & pastikan tidak ada spasi.'
+    } else if (e.message?.toLowerCase().includes('email not confirmed')) {
+      error.value = 'Email belum dikonfirmasi. Cek inbox atau minta kirim ulang verifikasi.'
+    } else if (e.message?.toLowerCase().includes('rate limit') || e.status === 429) {
+      error.value = 'Terlalu banyak percobaan. Tunggu 1 menit lalu coba lagi.'
+    } else if (e.message?.toLowerCase().includes('user not found')) {
+      error.value = 'Email belum terdaftar. Coba daftar dulu.'
+    }
   } finally {
     loading.value = false
   }
+}
+
+function toggleMode() {
+  isRegister.value = !isRegister.value
+  error.value = ''
+  errorCode.value = ''
 }
 </script>
 
@@ -39,13 +66,20 @@ async function submit() {
       <form class="space-y-3" @submit.prevent="submit">
         <input
           v-model="email" type="email" placeholder="Email" required
+          autocomplete="email"
           class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
         <input
           v-model="password" type="password" placeholder="Password" required minlength="6"
+          :autocomplete="isRegister ? 'new-password' : 'current-password'"
           class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+
+        <div v-if="error" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5">
+          <p>{{ error }}</p>
+          <p v-if="errorCode" class="text-xs text-red-400 mt-1 font-mono">[{{ errorCode }}]</p>
+        </div>
+
         <BaseButton size="lg" class="w-full" :loading="loading" type="submit">
           {{ isRegister ? 'Daftar' : 'Masuk' }}
         </BaseButton>
@@ -53,7 +87,7 @@ async function submit() {
 
       <button
         class="w-full text-center text-sm text-brand-600 mt-4"
-        @click="isRegister = !isRegister"
+        @click="toggleMode"
       >
         {{ isRegister ? 'Sudah punya akun? Masuk' : 'Belum punya akun? Daftar' }}
       </button>
