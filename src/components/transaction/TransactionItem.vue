@@ -2,6 +2,8 @@
 import * as LucideIcons from 'lucide-vue-next'
 import { computed } from 'vue'
 import { ArrowRight, HandCoins } from 'lucide-vue-next'
+import { TX_TYPE, TX_TYPE_LABEL, TX_TYPE_COLOR } from '../../constants/transaction'
+import { formatCurrency, formatDate } from '../../lib/format'
 
 const props = defineProps({
   tx: { type: Object, required: true },
@@ -12,32 +14,36 @@ const props = defineProps({
 })
 defineEmits(['click'])
 
+const isTransfer = computed(() => props.tx.type === TX_TYPE.TRANSFER)
+
 const icon = computed(() => {
-  if (props.tx.type === 'transfer') return LucideIcons.ArrowLeftRight
+  if (isTransfer.value) return LucideIcons.ArrowLeftRight
   return LucideIcons[props.category?.icon] || LucideIcons.Circle
 })
 
-const color = computed(() => {
-  if (props.tx.type === 'income') return '#10b981'
-  if (props.tx.type === 'expense') return '#ef4444'
-  return '#6366f1'
-})
+const color = computed(() =>
+  TX_TYPE_COLOR[props.tx.type] || TX_TYPE_COLOR[TX_TYPE.TRANSFER]
+)
 
 const label = computed(() => {
-  if (props.tx.type === 'transfer') return 'Transfer'
-  return props.category?.name || props.tx.type
+  if (isTransfer.value) return TX_TYPE_LABEL.transfer
+  return props.category?.name || TX_TYPE_LABEL[props.tx.type] || props.tx.type
 })
 
 const formatted = computed(() => {
-  const sign = props.tx.type === 'income' ? '+' : props.tx.type === 'expense' ? '−' : ''
-  return sign + new Intl.NumberFormat('id-ID', {
-    style: 'currency', currency: 'IDR', maximumFractionDigits: 0
-  }).format(props.tx.amount)
+  const sign =
+    props.tx.type === TX_TYPE.INCOME ? '+' :
+    props.tx.type === TX_TYPE.EXPENSE ? '−' : ''
+  return sign + formatCurrency(props.tx.amount)
 })
 
-const dateLabel = computed(() =>
-  new Date(props.tx.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
-)
+const dateLabel = computed(() => formatDate(props.tx.date))
+
+const amountClass = computed(() => {
+  if (props.tx.type === TX_TYPE.INCOME) return 'text-green-600'
+  if (props.tx.type === TX_TYPE.EXPENSE) return 'text-red-600'
+  return 'text-indigo-600'
+})
 </script>
 
 <template>
@@ -58,7 +64,7 @@ const dateLabel = computed(() =>
         <HandCoins v-if="hasLoan" class="w-3.5 h-3.5 text-amber-500 shrink-0" />
       </div>
       <p class="text-xs text-slate-500 truncate">
-        <template v-if="tx.type === 'transfer'">
+        <template v-if="isTransfer">
           {{ wallet?.name }} <ArrowRight class="inline w-3 h-3" /> {{ toWallet?.name }}
         </template>
         <template v-else>
@@ -68,10 +74,7 @@ const dateLabel = computed(() =>
       </p>
     </div>
 
-    <p
-      class="font-semibold text-sm whitespace-nowrap"
-      :class="tx.type === 'income' ? 'text-green-600' : tx.type === 'expense' ? 'text-red-600' : 'text-indigo-600'"
-    >
+    <p class="font-semibold text-sm whitespace-nowrap" :class="amountClass">
       {{ formatted }}
     </p>
   </button>

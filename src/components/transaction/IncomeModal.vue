@@ -7,6 +7,7 @@ import CategorySelect from '../ui/CategorySelect.vue'
 import { useTransactionStore } from '../../stores/transaction'
 import { useWalletStore } from '../../stores/wallet'
 import { useCategoryStore } from '../../stores/category'
+import { formatDateISO } from '../../lib/format'
 
 const props = defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue', 'saved'])
@@ -21,7 +22,7 @@ const form = ref(emptyForm())
 function emptyForm() {
   return {
     amount: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: formatDateISO(),
     wallet_id: null,
     category_id: null,
     note: ''

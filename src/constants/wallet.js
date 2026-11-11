@@ -5,6 +5,16 @@ export const WALLET_COLORS = [
   '#06b6d4', '#0ea5e9', '#64748b', '#0f172a'
 ]
 
+export const CURATED_WALLET_ICONS = [
+  'Wallet', 'PiggyBank', 'CreditCard', 'Banknote', 'Coins', 'Landmark',
+  'ShoppingCart', 'ShoppingBag', 'Utensils', 'Coffee', 'Car', 'Bike', 'Bus',
+  'Plane', 'Home', 'Building2', 'Zap', 'Wifi', 'Smartphone', 'Laptop',
+  'Heart', 'Stethoscope', 'GraduationCap', 'BookOpen', 'Gamepad2',
+  'Gift', 'Music', 'Film', 'Dumbbell', 'Shirt', 'Sparkles', 'Star',
+  'Briefcase', 'Store', 'Package', 'Truck', 'Fuel', 'Receipt', 'Percent',
+  'TrendingUp', 'TrendingDown', 'HandCoins', 'HandHeart', 'ClipboardList'
+]
+
 export const DEFAULT_WALLET = {
   name: '',
   initial_balance: 0,

@@ -1,6 +1,7 @@
 <script setup>
 import * as LucideIcons from 'lucide-vue-next'
 import { computed } from 'vue'
+import { formatCurrency } from '../../lib/format'
 
 const props = defineProps({
   wallet: { type: Object, required: true }
@@ -9,9 +10,7 @@ defineEmits(['click'])
 
 const icon = computed(() => LucideIcons[props.wallet.icon] || LucideIcons.Wallet)
 const formattedBalance = computed(() =>
-  new Intl.NumberFormat('id-ID', {
-    style: 'currency', currency: 'IDR', maximumFractionDigits: 0
-  }).format(props.wallet.initial_balance || 0)
+  formatCurrency(props.wallet.initial_balance || 0)
 )
 </script>
 

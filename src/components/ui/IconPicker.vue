@@ -2,21 +2,14 @@
 import { ref, computed } from 'vue'
 import * as LucideIcons from 'lucide-vue-next'
 import { Search } from 'lucide-vue-next'
+import { CURATED_WALLET_ICONS } from '../../constants/wallet'
 
 const props = defineProps({
   modelValue: { type: String, default: 'Wallet' }
 })
 const emit = defineEmits(['update:modelValue'])
 
-const CURATED = [
-  'Wallet','PiggyBank','CreditCard','Banknote','Coins','Landmark',
-  'ShoppingCart','ShoppingBag','Utensils','Coffee','Car','Bike','Bus',
-  'Plane','Home','Building2','Zap','Wifi','Smartphone','Laptop',
-  'Heart','Stethoscope','GraduationCap','BookOpen','Gamepad2',
-  'Gift','Music','Film','Dumbbell','Shirt','Sparkles','Star',
-  'Briefcase','Store','Package','Truck','Fuel','Receipt','Percent',
-  'TrendingUp','TrendingDown','HandCoins','HandHeart','ClipboardList'
-]
+const CURATED = CURATED_WALLET_ICONS
 
 const query = ref('')
 const filtered = computed(() => {

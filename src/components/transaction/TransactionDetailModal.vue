@@ -6,6 +6,8 @@ import BaseButton from '../ui/BaseButton.vue'
 import { useTransactionStore } from '../../stores/transaction'
 import { useWalletStore } from '../../stores/wallet'
 import { useCategoryStore } from '../../stores/category'
+import { TX_TYPE, TX_TYPE_LABEL } from '../../constants/transaction'
+import { formatCurrency, formatDate } from '../../lib/format'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -30,11 +32,19 @@ const txSplits = computed(() =>
   props.tx ? txStore.splits.filter(s => s.transaction_id === props.tx.id) : []
 )
 
-function fmt(v) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency', currency: 'IDR', maximumFractionDigits: 0
-  }).format(v || 0)
-}
+const isTransfer = computed(() => props.tx?.type === TX_TYPE.TRANSFER)
+
+const typeLabel = computed(() => {
+  if (!props.tx) return ''
+  return TX_TYPE_LABEL[props.tx.type] || props.tx.type
+})
+
+const amountClass = computed(() => {
+  if (props.tx?.type === TX_TYPE.INCOME) return 'text-green-600'
+  if (props.tx?.type === TX_TYPE.EXPENSE) return 'text-red-600'
+  return 'text-indigo-600'
+})
+
 function walletName(id) {
   return walletStore.wallets.find(w => w.id === id)?.name || '—'
 }
@@ -55,29 +65,26 @@ async function remove() {
   >
     <div v-if="tx" class="space-y-4">
       <div class="text-center py-2">
-        <p
-          class="text-2xl font-bold"
-          :class="tx.type === 'income' ? 'text-green-600' : tx.type === 'expense' ? 'text-red-600' : 'text-indigo-600'"
-        >
-          {{ fmt(tx.amount) }}
+        <p class="text-2xl font-bold" :class="amountClass">
+          {{ formatCurrency(tx.amount) }}
         </p>
-        <p class="text-sm text-slate-500 mt-1">{{ category?.name || tx.type }}</p>
+        <p class="text-sm text-slate-500 mt-1">{{ category?.name || typeLabel }}</p>
       </div>
 
       <div class="bg-slate-50 rounded-xl divide-y divide-slate-200 text-sm">
         <div class="flex justify-between p-3">
           <span class="text-slate-500">Tanggal</span>
-          <span class="font-medium">{{ tx.date }}</span>
+          <span class="font-medium">{{ formatDate(tx.date) }}</span>
         </div>
         <div class="flex justify-between p-3">
           <span class="text-slate-500">Jenis</span>
-          <span class="font-medium capitalize">{{ tx.type }}</span>
+          <span class="font-medium">{{ typeLabel }}</span>
         </div>
         <div class="flex justify-between p-3">
           <span class="text-slate-500">Dompet</span>
           <span class="font-medium">{{ wallet?.name || '—' }}</span>
         </div>
-        <div v-if="tx.type === 'transfer'" class="flex justify-between p-3">
+        <div v-if="isTransfer" class="flex justify-between p-3">
           <span class="text-slate-500">Ke Dompet</span>
           <span class="font-medium">{{ toWallet?.name || '—' }}</span>
         </div>
@@ -95,7 +102,7 @@ async function remove() {
             {{ walletName(s.wallet_id) }}
             <span v-if="s.is_loan" class="text-xs text-amber-600">(pinjaman)</span>
           </span>
-          <span class="font-medium">{{ fmt(s.amount) }}</span>
+          <span class="font-medium">{{ formatCurrency(s.amount) }}</span>
         </div>
       </div>
     </div>

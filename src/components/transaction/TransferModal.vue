@@ -6,6 +6,7 @@ import BaseButton from '../ui/BaseButton.vue'
 import WalletSelect from '../ui/WalletSelect.vue'
 import { useTransactionStore } from '../../stores/transaction'
 import { useWalletStore } from '../../stores/wallet'
+import { formatDateISO } from '../../lib/format'
 
 const props = defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue', 'saved'])
@@ -19,7 +20,7 @@ const form = ref(emptyForm())
 function emptyForm() {
   return {
     amount: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: formatDateISO(),
     from_wallet_id: null,
     to_wallet_id: null,
     note: ''

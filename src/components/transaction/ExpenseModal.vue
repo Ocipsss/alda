@@ -8,6 +8,7 @@ import CategorySelect from '../ui/CategorySelect.vue'
 import { useTransactionStore } from '../../stores/transaction'
 import { useWalletStore } from '../../stores/wallet'
 import { useCategoryStore } from '../../stores/category'
+import { formatCurrency, formatDateISO } from '../../lib/format'
 
 const props = defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue', 'saved'])
@@ -22,7 +23,7 @@ const form = ref(emptyForm())
 function emptyForm() {
   return {
     amount: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: formatDateISO(),
     category_id: null,
     note: '',
     payments: [{ wallet_id: null, amount: '', is_loan: false }]
@@ -77,12 +78,6 @@ async function submit() {
   } finally {
     saving.value = false
   }
-}
-
-function fmt(v) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency', currency: 'IDR', maximumFractionDigits: 0
-  }).format(v || 0)
 }
 </script>
 
@@ -173,16 +168,16 @@ function fmt(v) {
       <div class="bg-slate-100 rounded-xl p-3 text-sm space-y-1">
         <div class="flex justify-between">
           <span class="text-slate-600">Total tagihan</span>
-          <span class="font-medium">{{ fmt(form.amount) }}</span>
+          <span class="font-medium">{{ formatCurrency(form.amount) }}</span>
         </div>
         <div class="flex justify-between">
           <span class="text-slate-600">Dialokasikan</span>
-          <span class="font-medium">{{ fmt(totalPaid) }}</span>
+          <span class="font-medium">{{ formatCurrency(totalPaid) }}</span>
         </div>
         <div class="flex justify-between">
           <span class="text-slate-600">Sisa</span>
           <span :class="Math.abs(remaining) < 0.01 ? 'text-green-600' : 'text-red-600'" class="font-semibold">
-            {{ fmt(remaining) }}
+            {{ formatCurrency(remaining) }}
           </span>
         </div>
       </div>

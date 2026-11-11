@@ -1,4 +1,3 @@
-cat > src/views/Debts.vue << 'EOF'
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { Plus, HandCoins, TrendingDown, TrendingUp, ArrowLeft, CheckCircle2, Clock } from 'lucide-vue-next'
@@ -8,21 +7,31 @@ import DebtFormModal from '../components/debt/DebtFormModal.vue'
 import DebtPaymentModal from '../components/debt/DebtPaymentModal.vue'
 import { useTransactionStore } from '../stores/transaction'
 import { useWalletStore } from '../stores/wallet'
+import { DEBT_TYPE, DEBT_SOURCE, DEBT_TYPE_LABEL } from '../constants/debt'
+import { formatCurrency, formatDate } from '../lib/format'
 
 const router = useRouter()
 const txStore = useTransactionStore()
 const walletStore = useWalletStore()
 
-const tab = ref('utang')
+const tab = ref(DEBT_TYPE.UTANG)
 const showForm = ref(false)
 const showPayment = ref(false)
-const formType = ref('utang')
+const formType = ref(DEBT_TYPE.UTANG)
 const activeDebt = ref(null)
 
-const list = computed(() => tab.value === 'utang' ? txStore.utangs : txStore.piutangs)
+const isUtangTab = computed(() => tab.value === DEBT_TYPE.UTANG)
 
-const totalUtang = computed(() => txStore.utangs.reduce((s, d) => s + Number(d.remaining), 0))
-const totalPiutang = computed(() => txStore.piutangs.reduce((s, d) => s + Number(d.remaining), 0))
+const list = computed(() =>
+  isUtangTab.value ? txStore.utangs : txStore.piutangs
+)
+
+const totalUtang = computed(() =>
+  txStore.utangs.reduce((s, d) => s + Number(d.remaining), 0)
+)
+const totalPiutang = computed(() =>
+  txStore.piutangs.reduce((s, d) => s + Number(d.remaining), 0)
+)
 
 onMounted(async () => {
   await txStore.loadLocal()
@@ -36,10 +45,9 @@ function openPayment(debt) {
   activeDebt.value = debt
   showPayment.value = true
 }
-function fmt(v) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v || 0)
+function isLunas(d) {
+  return Number(d.remaining) <= 0
 }
-function isLunas(d) { return Number(d.remaining) <= 0 }
 </script>
 
 <template>
@@ -61,39 +69,42 @@ function isLunas(d) { return Number(d.remaining) <= 0 }
           <div class="flex items-center gap-1 text-xs text-red-700 font-medium mb-1">
             <TrendingDown class="w-3.5 h-3.5" /> Utang
           </div>
-          <p class="text-lg font-bold text-red-700">{{ fmt(totalUtang) }}</p>
+          <p class="text-lg font-bold text-red-700">{{ formatCurrency(totalUtang) }}</p>
         </div>
         <div class="bg-green-50 rounded-xl p-4 border border-green-100">
           <div class="flex items-center gap-1 text-xs text-green-700 font-medium mb-1">
             <TrendingUp class="w-3.5 h-3.5" /> Piutang
           </div>
-          <p class="text-lg font-bold text-green-700">{{ fmt(totalPiutang) }}</p>
+          <p class="text-lg font-bold text-green-700">{{ formatCurrency(totalPiutang) }}</p>
         </div>
       </section>
 
       <!-- Tabs -->
       <div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
         <button
-          :class="['py-2 text-sm font-medium rounded-lg transition', tab === 'utang' ? 'bg-white shadow text-brand-600' : 'text-slate-600']"
-          @click="tab = 'utang'"
-        >Utang ({{ txStore.utangs.length }})</button>
+          :class="['py-2 text-sm font-medium rounded-lg transition', isUtangTab ? 'bg-white shadow text-brand-600' : 'text-slate-600']"
+          @click="tab = DEBT_TYPE.UTANG"
+        >{{ DEBT_TYPE_LABEL.utang }} ({{ txStore.utangs.length }})</button>
         <button
-          :class="['py-2 text-sm font-medium rounded-lg transition', tab === 'piutang' ? 'bg-white shadow text-brand-600' : 'text-slate-600']"
-          @click="tab = 'piutang'"
-        >Piutang ({{ txStore.piutangs.length }})</button>
+          :class="['py-2 text-sm font-medium rounded-lg transition', tab === DEBT_TYPE.PIUTANG ? 'bg-white shadow text-brand-600' : 'text-slate-600']"
+          @click="tab = DEBT_TYPE.PIUTANG"
+        >{{ DEBT_TYPE_LABEL.piutang }} ({{ txStore.piutangs.length }})</button>
       </div>
 
       <!-- Actions -->
       <div class="flex gap-2">
         <BaseButton class="flex-1" @click="openCreate(tab)">
-          <Plus class="w-4 h-4 inline mr-1" /> Catat {{ tab === 'utang' ? 'Utang' : 'Piutang' }}
+          <Plus class="w-4 h-4 inline mr-1" />
+          Catat {{ isUtangTab ? DEBT_TYPE_LABEL.utang : DEBT_TYPE_LABEL.piutang }}
         </BaseButton>
       </div>
 
       <!-- List -->
       <div v-if="!list.length" class="bg-white rounded-xl p-8 text-center border border-slate-200">
         <HandCoins class="w-10 h-10 text-slate-300 mx-auto mb-2" />
-        <p class="text-sm text-slate-500">Belum ada catatan {{ tab }}</p>
+        <p class="text-sm text-slate-500">
+          Belum ada catatan {{ isUtangTab ? DEBT_TYPE_LABEL.utang.toLowerCase() : DEBT_TYPE_LABEL.piutang.toLowerCase() }}
+        </p>
       </div>
 
       <div v-else class="space-y-2">
@@ -109,19 +120,22 @@ function isLunas(d) { return Number(d.remaining) <= 0 }
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <p class="font-medium truncate">{{ d.party }}</p>
-                <span v-if="d.source === 'internal'" class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">Internal</span>
+                <span
+                  v-if="d.source === DEBT_SOURCE.INTERNAL"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium"
+                >Internal</span>
               </div>
               <p v-if="d.note" class="text-xs text-slate-500 truncate mt-0.5">{{ d.note }}</p>
               <p v-if="d.due_date" class="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                <Clock class="w-3 h-3" /> Jatuh tempo: {{ d.due_date }}
+                <Clock class="w-3 h-3" /> Jatuh tempo: {{ formatDate(d.due_date) }}
               </p>
             </div>
             <div class="text-right shrink-0">
               <p v-if="isLunas(d)" class="text-xs font-semibold text-green-600 flex items-center gap-1">
                 <CheckCircle2 class="w-3.5 h-3.5" /> Lunas
               </p>
-              <p v-else class="text-sm font-bold text-slate-900">{{ fmt(d.remaining) }}</p>
-              <p class="text-[10px] text-slate-500 mt-0.5">dari {{ fmt(d.principal) }}</p>
+              <p v-else class="text-sm font-bold text-slate-900">{{ formatCurrency(d.remaining) }}</p>
+              <p class="text-[10px] text-slate-500 mt-0.5">dari {{ formatCurrency(d.principal) }}</p>
             </div>
           </div>
         </button>
@@ -132,4 +146,3 @@ function isLunas(d) { return Number(d.remaining) <= 0 }
     <DebtPaymentModal v-model="showPayment" :debt="activeDebt" @saved="txStore.loadLocal()" />
   </div>
 </template>
-EOF

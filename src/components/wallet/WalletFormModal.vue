@@ -7,6 +7,7 @@ import BaseButton from '../ui/BaseButton.vue'
 import IconPicker from '../ui/IconPicker.vue'
 import ColorPicker from '../ui/ColorPicker.vue'
 import { useWalletStore } from '../../stores/wallet'
+import { DEFAULT_WALLET } from '../../constants/wallet'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -19,19 +20,21 @@ const saving = ref(false)
 const showIconPicker = ref(false)
 const showColorPicker = ref(false)
 
-const form = ref({
-  id: null,
-  name: '',
-  initial_balance: 0,
-  color: '#3b82f6',
-  icon: 'Wallet'
-})
+function emptyForm() {
+  return {
+    id: null,
+    name: DEFAULT_WALLET.name,
+    initial_balance: DEFAULT_WALLET.initial_balance,
+    color: DEFAULT_WALLET.color,
+    icon: DEFAULT_WALLET.icon
+  }
+}
+
+const form = ref(emptyForm())
 
 watch(() => props.modelValue, (open) => {
   if (open) {
-    form.value = props.wallet
-      ? { ...props.wallet }
-      : { id: null, name: '', initial_balance: 0, color: '#3b82f6', icon: 'Wallet' }
+    form.value = props.wallet ? { ...props.wallet } : emptyForm()
     showIconPicker.value = false
     showColorPicker.value = false
   }
