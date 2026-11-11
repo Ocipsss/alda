@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Wallet as WalletIcon, LogOut, RefreshCw, ScrollText, HandCoins } from 'lucide-vue-next'
 import BaseButton from '../components/ui/BaseButton.vue'
@@ -15,13 +15,19 @@ import { useAuthStore } from '../stores/auth'
 import { useWalletStore } from '../stores/wallet'
 import { useCategoryStore } from '../stores/category'
 import { useTransactionStore } from '../stores/transaction'
+import { useAutoSync } from '../composables/useAutoSync'
 import { seedCategories } from '../db/seed'
+import { formatCurrency } from '../lib/format'
 
 const auth = useAuthStore()
 const walletStore = useWalletStore()
 const catStore = useCategoryStore()
 const txStore = useTransactionStore()
 const router = useRouter()
+
+// Sync lifecycle global (timer + event online) — dipasang sekali di App.vue
+// Di sini cukup akses `syncing` state & trigger manual lewat `syncAll`.
+const { syncing, syncAll } = useAutoSync()
 
 const showWalletForm = ref(false)
 const showIncome = ref(false)
@@ -30,7 +36,6 @@ const showTransfer = ref(false)
 const showDetail = ref(false)
 const editingWallet = ref(null)
 const detailTx = ref(null)
-const syncing = ref(false)
 
 const balances = computed(() => txStore.balances(walletStore.wallets))
 const walletsWithBalance = computed(() =>
@@ -49,25 +54,11 @@ function openCreateWallet() { editingWallet.value = null; showWalletForm.value =
 function openEditWallet(w) { editingWallet.value = w; showWalletForm.value = true }
 function openDetail(tx) { detailTx.value = tx; showDetail.value = true }
 
-async function refreshAll() {
-  syncing.value = true
-  try {
-    await Promise.all([
-      walletStore.syncWallets(),
-      catStore.syncCategories(),
-      txStore.syncAll()
-    ])
-  } finally {
-    syncing.value = false
-  }
-}
-
 async function logout() {
   await auth.signOut()
   router.push({ name: 'login' })
 }
 
-let timer
 onMounted(async () => {
   if (auth.user) await seedCategories(auth.user.id)
   await Promise.all([
@@ -75,22 +66,7 @@ onMounted(async () => {
     catStore.loadLocal(),
     txStore.loadLocal()
   ])
-  walletStore.syncWallets().catch(() => {})
-  catStore.syncCategories().catch(() => {})
-  txStore.syncAll().catch(() => {})
-  timer = setInterval(() => refreshAll().catch(() => {}), 30_000)
-  window.addEventListener('online', refreshAll)
 })
-onUnmounted(() => {
-  clearInterval(timer)
-  window.removeEventListener('online', refreshAll)
-})
-
-function fmt(v) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency', currency: 'IDR', maximumFractionDigits: 0
-  }).format(v || 0)
-}
 </script>
 
 <template>
@@ -104,7 +80,7 @@ function fmt(v) {
         <button class="p-2 rounded-lg hover:bg-slate-100" @click="router.push({ name: 'debts' })" title="Pinjaman">
           <HandCoins class="w-5 h-5 text-slate-600" />
         </button>
-        <button class="p-2 rounded-lg hover:bg-slate-100" @click="refreshAll">
+        <button class="p-2 rounded-lg hover:bg-slate-100" @click="syncAll">
           <RefreshCw class="w-5 h-5 text-slate-600" :class="{ 'animate-spin': syncing }" />
         </button>
         <button class="p-2 rounded-lg hover:bg-slate-100" @click="logout">
@@ -116,7 +92,7 @@ function fmt(v) {
     <main class="px-5 space-y-5">
       <section class="bg-gradient-to-br from-brand-600 to-brand-700 text-white rounded-2xl p-5 shadow-lg">
         <p class="text-sm opacity-80">Total Saldo Gabungan</p>
-        <p class="text-3xl font-bold mt-1">{{ fmt(totalBalance) }}</p>
+        <p class="text-3xl font-bold mt-1">{{ formatCurrency(totalBalance) }}</p>
         <p class="text-xs opacity-70 mt-2">{{ walletsWithBalance.length }} dompet aktif</p>
       </section>
 
