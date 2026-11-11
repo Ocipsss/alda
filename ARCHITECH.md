@@ -1,4 +1,6 @@
-📄 ARCHITECTURE.md
+📄 ARCHITECTURE.md — Update + Restore Formatting
+
+File yang kamu kirim memiliki beberapa formatting yang rusak (kemungkinan copy-paste dari viewer yang tidak render markdown). Saya restore formatnya plus update konten: tambah CategoryPickerModal, CategoryItem, CategoryFormModal, Categories.vue, SplitBills.vue; hapus folder split-bill/; tambah subsection "Category Picker Pattern".
 
 ```markdown
 # Alda — Architecture & Technical Documentation
@@ -71,7 +73,7 @@ Alda adalah PWA (Progressive Web App) **offline-first** yang menggabungkan:
 ```text
 src/
 ├── App.vue                        # Root — panggil useAutoSync()
-├── main.js                        # Bootstrap — mount + auth init
+├── main.js                        # Bootstrap — mount + auth init + registerSW
 ├── style.css                      # Tailwind v4 + tema
 │
 ├── assets/                        # Static assets Vue
@@ -83,15 +85,19 @@ src/
 │   │   ├── ColorPicker.vue        # Palet warna dompet
 │   │   ├── IconPicker.vue         # Picker ikon Lucide
 │   │   ├── WalletSelect.vue       # Select dompet
-│   │   └── CategorySelect.vue     # Select kategori
+│   │   ├── CategorySelect.vue     # Kategori picker (button + modal)
+│   │   └── CategoryPickerModal.vue # Modal grid kategori
 │   ├── layout/
 │   │   └── FabMenu.vue            # FAB speed-dial
 │   ├── wallet/                    # Wallet-related
 │   │   ├── WalletCard.vue
 │   │   └── WalletFormModal.vue
+│   ├── category/                  # Category-related
+│   │   ├── CategoryItem.vue
+│   │   └── CategoryFormModal.vue
 │   ├── transaction/               # Transaction-related
 │   │   ├── IncomeModal.vue
-│   │   ├── ExpenseModal.vue       # Multi-wallet + loan flag
+│   │   ├── ExpenseModal.vue       # Multi-wallet + auto-talangan + loan flag
 │   │   ├── TransferModal.vue
 │   │   ├── TransactionItem.vue
 │   │   └── TransactionDetailModal.vue
@@ -153,7 +159,9 @@ src/
 └── views/                         # Page-level components
     ├── Login.vue
     ├── Dashboard.vue
-    └── Debts.vue
+    ├── Debts.vue
+    ├── Categories.vue
+    └── SplitBills.vue
 ```
 
 ---
@@ -332,9 +340,11 @@ transactions Header transaksi (income / expense / transfer)
 transaction_splits Detail multi-wallet payment per transaksi
 debts Utang / piutang (eksternal & internal)
 debt_payments Riwayat pelunasan
-split_bills (Persiapan Fase 5) Header split bill
-split_bill_members (Persiapan Fase 5) Anggota split
+split_bills (Persiapan, belum dipakai) Header split bill
+split_bill_members (Persiapan, belum dipakai) Anggota split
 sync_meta Metadata sync (last_sync_at per tabel)
+
+Catatan: Tabel split_bills & split_bill_members dibuat saat Fase 2 sebagai persiapan, tapi tidak dipakai karena Split Bill akhirnya diimplementasikan sebagai fitur otomatis di ExpenseModal (bukan modul DB terpisah). Bisa dihapus di masa depan atau dipakai untuk fitur lain.
 
 4.2 Kolom Standar Sync
 
@@ -591,7 +601,64 @@ Kenapa reset setiap open? Supaya data dari edit sebelumnya tidak "bocor" ke crea
 · IconPicker.vue — grid 46 ikon curated + search, ambil dari constants/wallet
 · ColorPicker.vue — grid 16 warna, ambil dari constants/wallet
 
-Keduanya di-nest di dalam WalletFormModal untuk pilih visual dompet.
+Keduanya di-nest di dalam WalletFormModal & CategoryFormModal untuk pilih visual.
+
+7.4 Category Picker Pattern
+
+Untuk konsistensi form, kategori dipilih via modal picker (bukan grid terbuka):
+
+· CategorySelect.vue — menampilkan tombol ringkas (ikon + nama kategori terpilih + chevron)
+· Klik tombol → CategoryPickerModal.vue terbuka
+· Modal menampilkan grid 3 kolom ikon + nama kategori
+· Klik item → emit select → CategorySelect update v-model → modal tutup
+
+Interface CategorySelect:
+
+```vue
+<CategorySelect
+  v-model="form.category_id"
+  :categories="catStore.expenseCategories"
+  label="Kategori"
+/>
+```
+
+Interface sama seperti versi grid lama — jadi pemanggil (IncomeModal, ExpenseModal) tidak perlu diubah saat migrasi.
+
+7.5 ExpenseModal — Split Payment Otomatis
+
+ExpenseModal.vue adalah form pengeluaran dengan fitur split payment otomatis:
+
+Form state:
+
+```js
+{
+  amount: '',                    // total belanja
+  date: formatDateISO(),
+  category_id: null,
+  note: '',
+  primary: { wallet_id: null, amount: '' },  // dompet utama
+  talangan: []                   // [{ wallet_id, amount, is_loan }]
+}
+```
+
+Alur:
+
+1. User isi amount + pilih dompet utama
+2. watch pada [amount, primary.wallet_id] trigger autoBalance()
+3. autoBalance():
+   · Primary amount = min(total, saldo primary)
+   · Kalau total > saldo primary → loop sisa dompet, auto-fill talangan sampai cukup
+   · Setiap talangan default is_loan: true
+4. Talangan bisa diedit manual (dompet & nominal) atau toggled pinjam
+5. Preview saldo before/after ditampilkan
+6. Submit → panggil txStore.createExpense() dengan payments = [primary, ...talangan]
+
+Karakteristik:
+
+· Talangan hidden kalau saldo cukup (tidak ada section)
+· Talangan muncul otomatis kalau saldo kurang
+· Kalau masih kurang setelah semua dompet dipakai → warning merah + submit disabled
+· Reuse transactionService.createExpense() (logic backend sama dengan Fase 3)
 
 ---
 
@@ -652,8 +719,8 @@ Full schema ada di dokumentasi setup (fase 1-4). 8 tabel dengan RLS aktif:
 · transaction_splits
 · debts
 · debt_payments
-· split_bills
-· split_bill_members
+· split_bills (persiapan, belum dipakai)
+· split_bill_members (persiapan, belum dipakai)
 
 9.2 RLS Policy (contoh)
 
@@ -762,16 +829,24 @@ Sebelum deploy, verifikasi:
 ☐ Hapus dompet → hilang dari list (soft delete)
 ☐ Saldo gabungan = jumlah saldo semua dompet aktif
 
-13.3 Transaction
+13.3 Category
+
+☐ Tambah kategori → muncul di list
+☐ Edit kategori → update
+☐ Hapus kategori → hilang dari list
+☐ Kategori baru langsung tersedia di CategorySelect
+
+13.4 Transaction
 
 ☐ Income → saldo naik
 ☐ Expense single-wallet → saldo turun
-☐ Expense multi-wallet → 2 dompet terpotong
-☐ Expense multi-wallet + loan → saldo + debt internal
+☐ Expense multi-wallet (saldo kurang) → talangan auto-muncul
+☐ Expense multi-wallet + loan ON → saldo terpotong + debt internal
+☐ Expense multi-wallet + loan OFF → saldo terpotong, tidak ada debt
 ☐ Transfer → saldo pindah
 ☐ Hapus transaksi → saldo kembali
 
-13.4 Debt
+13.5 Debt
 
 ☐ Catat utang eksternal → saldo naik, muncul di tab Utang
 ☐ Catat piutang eksternal → saldo turun, muncul di tab Piutang
@@ -779,14 +854,23 @@ Sebelum deploy, verifikasi:
 ☐ Pelunasan cicilan → sisa berkurang
 ☐ Pelunasan lunas → status Lunas
 
-13.5 Sync & Offline
+13.6 Split Payment
+
+☐ Split dengan saldo cukup → section talangan tersembunyi
+☐ Split dengan saldo kurang → section talangan muncul otomatis
+☐ Toggle pinjam ON/OFF → behavior berbeda (debt vs tidak)
+☐ Multi-talangan muncul saat masih kurang
+☐ Semua dompet terpakai masih kurang → warning + submit disabled
+☐ Buka /split-bills → history tampil (read-only)
+
+13.7 Sync & Offline
 
 ☐ Offline → tambah data → tetap sukses (Dexie)
 ☐ Online → data ter-sync ke Supabase dalam 30 detik
 ☐ Multi-device → login di 2 browser → data sinkron
 ☐ Soft delete → row di Supabase masih ada dengan is_deleted: true
 
-13.6 PWA
+13.8 PWA
 
 ☐ Tombol Install muncul di Chrome
 ☐ Aplikasi bisa dibuka offline
@@ -810,11 +894,65 @@ Sebelum deploy, verifikasi:
 
 Tanggal Perubahan
 2026-11-11 Dokumen dibuat. Mencakup arsitektur lengkap pasca-refactor SoC (constants, lib, repos, services, stores, composables).
+2026-11-11 Revisi 1: Restore formatting markdown yang rusak. Update struktur folder: tambah CategoryPickerModal.vue, components/category/, views/Categories.vue, views/SplitBills.vue; hapus folder components/split-bill/. Tambah subsection 7.4 (Category Picker Pattern) & 7.5 (ExpenseModal Split Payment Otomatis). Update testing checklist.
 
 ---
 
 © Alda 2026
 
+```
+
+---
+
+## 🔍 Ringkasan Perubahan
+
+### `CONCEPT.md`
+| Bagian | Perubahan |
+|---|---|
+| 3.4 Kategori | Update: UI CRUD sudah ada di `/categories`, selector pakai modal picker |
+| 3.5 Utang & Piutang | Penomoran geser (dari 3.5 → tetap 3.5, dari 3.6) |
+| 4.4 Relasi | Update: "Fase 5" → "Split Bill" (bukan fase, sudah terintegrasi) |
+| **4.5 UX Split Bill** | **Rewrite total** — dari "Wizard terpisah" ke "Alur `+ Pengeluaran` dengan talangan otomatis" |
+| 5 Roadmap | Fase 3.5 & 5 → ✅ Selesai; tambah catatan UX revamp |
+| 8 Glosarium | Tambah: Dompet Utama, Dompet Talangan |
+| 10 Riwayat | Tambah Revisi 2 |
+
+### `ARCHITECTURE.md`
+| Bagian | Perubahan |
+|---|---|
+| **Formatting** | **Restore markdown yang rusak** (code blocks, headers, tables) |
+| 2 Struktur Folder | Tambah: `CategoryPickerModal.vue`, `components/category/`, `views/Categories.vue`, `views/SplitBills.vue`; **hapus** `components/split-bill/` |
+| 4.1 Tabel | Tambah catatan: `split_bills`/`split_bill_members` belum dipakai |
+| 7.3 Icon & Color Picker | Tambah: di-nest juga di `CategoryFormModal` |
+| **7.4 Category Picker Pattern** | **Subsection BARU** |
+| **7.5 ExpenseModal Split Payment** | **Subsection BARU** |
+| 13 Testing | Tambah 13.3 Category, 13.6 Split Payment; renumber |
+| 15 Riwayat | Tambah Revisi 1 |
+
+---
+
+## 💾 Commit
+
+```bash
+git add CONCEPT.md ARCHITECTURE.md
+git commit -m "docs: update CONCEPT and ARCHITECTURE for post-Fase-5 UX revamp
+
+CONCEPT.md:
+- Mark Fase 3.5 & 5 as complete
+- Rewrite section 4.5 (Split Bill UX is now inside ExpenseModal, not a separate modal)
+- Update section 3.4 (Category CRUD UI exists at /categories)
+- Add glossary terms: Dompet Utama, Dompet Talangan
+- Add revision history entry
+
+ARCHITECTURE.md:
+- Restore markdown formatting (broken code blocks, headers, tables)
+- Update folder structure (add CategoryPickerModal, components/category/,
+  views/Categories.vue, views/SplitBills.vue; remove components/split-bill/)
+- Add subsection 7.4 (Category Picker Pattern)
+- Add subsection 7.5 (ExpenseModal Split Payment Auto-Talangan)
+- Update testing checklist (13.3 Category, 13.6 Split Payment)
+- Add revision history entry"
+git push origin main
 ```
 
 ---

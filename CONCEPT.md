@@ -40,7 +40,7 @@ Alda mengasumsikan user punya **banyak "kantong uang"** yang perlu dipisah tapi 
 
 ---
 
-## 3. Fitur Inti (Fase 1-4)
+## 3. Fitur Inti
 
 ### 3.1 Autentikasi (Supabase)
 - Login & register dengan email + password
@@ -54,14 +54,14 @@ Alda mengasumsikan user punya **banyak "kantong uang"** yang perlu dipisah tapi 
 
 ### 3.3 Transaksi
 - **Income** (pemasukan): nominal, tanggal, dompet, kategori, catatan
-- **Expense** (pengeluaran): bisa single-wallet atau multi-wallet
+- **Expense** (pengeluaran): single-wallet, atau otomatis multi-wallet saat saldo kurang (lihat Bagian 4)
 - **Transfer**: pindah dana antar dompet
 
 ### 3.4 Kategori
 - **Kategori default otomatis**: 13 kategori (5 income, 8 expense) ter-seed saat user baru pertama login
-- **Backend CRUD** sudah tersedia (`categoryService.save`, `categoryService.softDelete`, `categoryRepo`)
-- **UI CRUD** (tambah/edit/hapus kategori dari aplikasi) → lihat Fase 3.5
+- **UI CRUD** di halaman `/categories`: tambah/edit/hapus kategori dengan icon picker
 - Kategori punya: nama, jenis (income/expense), ikon (dari Lucide)
+- **Kategori selector** di form transaksi menggunakan modal picker (bukan grid terbuka di form) — konsisten dengan field tanggal/waktu
 
 ### 3.5 Utang & Piutang
 - **Eksternal**: catat utang ke pihak luar (Budi, Koperasi) atau piutang ke orang lain
@@ -137,32 +137,49 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 
 | Fitur | Sudah Ada di | Keterangan |
 |---|---|---|
-| Multi-wallet expense | `ExpenseModal.vue` (Fase 3) | Basis logic |
+| Multi-wallet expense | `ExpenseModal.vue` | Basis logic |
 | Flag `is_loan` per split | `ExpenseModal.vue` | Flag pinjaman |
 | Auto-create internal debt | `transactionService.createExpense` | Kalau `is_loan: true` |
-| Lihat & lunasi utang internal | `/debts` (Fase 4) | Utang yang terbentuk |
+| Lihat & lunasi utang internal | `/debts` | Utang yang terbentuk |
 
 **Artinya:**
-- Fase 5 (Split Bill) **bukan fitur DB baru**
-- Fase 5 hanya **UX-enhanced** dari `ExpenseModal`
+- Split Bill **bukan fitur DB baru**
+- Split Bill adalah **fitur otomatis di dalam `ExpenseModal`**
 - Reuse `transactionService.createExpense()` — tidak ada logic baru di backend
 
-### 4.5 UX Split Bill (Fase 5)
+### 4.5 Implementasi UX Split Bill
 
-**Tujuan:** Membantu user saat **saldo dompet utama tidak cukup**.
+**Tidak ada modal "Split Payment" terpisah.** Split payment **otomatis muncul** di dalam modal `+ Pengeluaran` saat saldo dompet utama tidak cukup.
 
-**Wizard:**
-1. Input total belanja, tanggal, kategori
-2. Pilih dompet utama → **deteksi otomatis** kalau saldo kurang
-3. **Auto-suggest** dompet lain yang bisa menutup kekurangan
-4. Toggle per dompet penutup: **Pinjam / Bukan Pinjam**
-5. **Preview** saldo before/after per dompet
-6. Simpan
+**Alur `+ Pengeluaran`:**
 
-**Halaman `/split-bills`:**
+1. **Isi total belanja**
+2. **Pilih tanggal**
+3. **Pilih kategori** (via modal picker)
+4. **Pilih dompet utama** → nominal dipakai otomatis = min(total, saldo dompet)
+5. **Sistem cek:**
+   - **Kalau nominal ≤ saldo** → section "Dompet Talangan" **disembunyikan**
+   - **Kalau nominal > saldo** → section "Dompet Talangan" **muncul otomatis**:
+     * Sistem auto-suggest dompet penutup dengan saldo memadai
+     * Nominal talangan auto-fill = kekurangan
+     * Toggle switch **Pinjam** (default ON, bisa OFF)
+     * Kalau masih kurang → auto-tambah talangan kedua, ketiga, dst (sampai semua dompet terpakai)
+6. **Preview saldo before/after** per dompet
+7. **Isi catatan** (opsional)
+8. **Simpan**
+
+**Karakteristik UX:**
+- Talangan bisa **diedit manual** (dompet maupun nominal) setelah auto-suggest
+- Kalau user ubah total belanja atau dompet utama → talangan **auto-recalculate**
+- Kalau semua dompet sudah dipakai tapi masih kurang → muncul warning merah + submit disabled
+
+**Halaman `/split-bills` (read-only history):**
 - Daftar transaksi yang dibayar **>1 wallet**
-- Filter: dengan pinjaman / tanpa pinjaman
-- Tap → detail (reuse `TransactionDetailModal`)
+- Filter: Semua / Dengan Pinjaman / Tanpa Pinjaman
+- Summary: Total Split & Total Pinjaman
+- Tap transaksi → buka detail (reuse `TransactionDetailModal`)
+- **Tidak ada tombol "Split Baru"** — karena split dibuat dari `+ Pengeluaran` biasa
+- Akses via link "Riwayat Split →" di section Riwayat Transaksi Dashboard
 
 ---
 
@@ -173,14 +190,14 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 | 1 | Setup: Vue + Vite + Tailwind + PWA + Dexie + Supabase + Base UI | ✅ Selesai |
 | 2 | Auth + CRUD Dompet + Icon/Color Picker | ✅ Selesai |
 | 3 | Transaksi (Income, Expense multi-wallet, Transfer) + Riwayat | ✅ Selesai |
-| **3.5** | **CRUD Kategori (UI)** — backend sudah siap, tinggal UI | ⏸️ **Akan dimulai** |
+| 3.5 | CRUD Kategori UI (`/categories`) | ✅ Selesai |
 | 4 | Utang/Piutang Eksternal & Internal + Pelunasan | ✅ Selesai |
 | Refactor | SoC (constants, lib, repos, services, stores, composables) | ✅ Selesai |
-| 5 | Split Bill (Split Payment UX-enhanced) | ⬜ Belum |
+| 5 | Split Bill — **terintegrasi di ExpenseModal** (UX-enhanced, bukan modal terpisah) | ✅ Selesai |
 | 6 (rencana) | Filter lanjutan, Laporan bulanan, Export CSV | ⬜ Belum |
 | 7 (rencana) | Onboarding & tutorial interaktif | ⬜ Belum |
 
-> **Catatan revisi:** Fase 3.5 (CRUD Kategori) disisipkan setelah Fase 4 karena awalnya tertunda. Backend (`categoryService` + `categoryRepo`) sudah tersedia sejak Refactor Step 6, hanya UI yang belum dibangun.
+> **Catatan:** Fase 5 awalnya direncanakan sebagai modal terpisah (`SplitBillFormModal`), tapi setelah UX review, diputuskan untuk **melebur ke `ExpenseModal`** sebagai fitur otomatis saat saldo kurang. Modal `SplitBillFormModal` dihapus. Halaman `/split-bills` tetap ada sebagai **riwayat read-only**.
 
 ---
 
@@ -196,7 +213,7 @@ Detail lengkap di `ARCHITECTURE.md`. Ringkasnya:
 - **Deploy:** Vercel (auto-deploy dari GitHub)
 
 **Pola offline-first:**
-User Action → Store → Dexie (instan) →  Sync Engine → Supabase
+User Action → Store → Dexie (instan) → [background] Sync Engine → Supabase
 
 **Sync:**
 - Push: `_pending: true` di Dexie → push ke Supabase
@@ -230,6 +247,8 @@ User Action → Store → Dexie (instan) →  Sync Engine → Supabase
 | **Saldo Awal** | Saldo dompet saat pertama kali dibuat |
 | **Split Payment** | Satu transaksi dibayar >1 dompet |
 | **Split Bill** | **= Split Payment** (lihat Bagian 4) |
+| **Dompet Utama** | Dompet yang dipakai duluan |
+| **Dompet Talangan** | Dompet yang menutup kekurangan (muncul otomatis saat saldo kurang) |
 | **Pinjaman Internal** | Utang antar dompet milik user sendiri |
 | **Utang Eksternal** | Utang ke pihak luar (orang / koperasi) |
 | **Piutang Eksternal** | Uang orang lain yang ada di kita (harus ditagih) |
@@ -252,7 +271,8 @@ User Action → Store → Dexie (instan) →  Sync Engine → Supabase
 | Tanggal | Perubahan |
 |---|---|
 | 2026-11-11 | Dokumen dibuat. Mendefinisikan Split Bill secara final (split payment multi-wallet, BUKAN bagi tagihan ke teman). |
-| 2026-11-11 | **Revisi:** Tambah bagian 3.4 (Kategori) sebagai fitur inti. Sisipkan Fase 3.5 (CRUD Kategori UI) ke roadmap karena backend sudah siap sejak Refactor Step 6 tapi UI-nya belum dibangun. Update penomoran bagian (3.4 Utang → 3.5, 3.5 Sinkronisasi → 3.6). |
+| 2026-11-11 | Revisi 1: Tambah 3.4 (Kategori), sisipkan Fase 3.5 di roadmap. |
+| 2026-11-11 | **Revisi 2:** Fase 3.5 & 5 selesai. UX Split Bill berubah — tidak lagi modal terpisah, tapi fitur otomatis di `ExpenseModal`. `SplitBillFormModal` dihapus. Halaman `/split-bills` jadi riwayat read-only. Kategori selector jadi modal picker. Update 4.5 (alur UX baru), Section 5 (status roadmap), Section 8 (glosarium: Dompet Utama, Dompet Talangan). |
 
 ---
 
