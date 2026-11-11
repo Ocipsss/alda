@@ -13,7 +13,7 @@ function act(name) {
 </script>
 
 <template>
-  <div class="fixed bottom-6 right-5 z-40 flex flex-col items-end gap-2">
+  <div class="fab-container fixed right-5 z-40 flex flex-col items-end gap-2">
     <Transition name="fab">
       <div v-if="open" class="flex flex-col items-end gap-2">
         <button
@@ -52,6 +52,18 @@ function act(name) {
 </template>
 
 <style scoped>
-.fab-enter-active, .fab-leave-active { transition: all 0.2s ease; }
-.fab-enter-from, .fab-leave-to { opacity: 0; transform: translateY(8px); }
+.fab-container {
+  /* BottomNav (~56px) + safe-area (iPhone home indicator) + margin 16px */
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+.fab-enter-active,
+.fab-leave-active {
+  transition: all 0.2s ease;
+}
+.fab-enter-from,
+.fab-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
 </style>
