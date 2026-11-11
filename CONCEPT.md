@@ -44,7 +44,9 @@ Alda mengasumsikan user punya **banyak "kantong uang"** yang perlu dipisah tapi 
 
 ### 3.1 Autentikasi (Supabase)
 - Login & register dengan email + password
+- Password visibility toggle (ikon mata) di form login
 - Session persisten (tidak perlu login ulang tiap buka)
+- Auto-recovery saat session corrupt (misal setelah clear site data)
 - Multi-device: login di HP & tablet bersamaan, data tersinkron
 
 ### 3.2 Manajemen Dompet
@@ -72,6 +74,48 @@ Alda mengasumsikan user punya **banyak "kantong uang"** yang perlu dipisah tapi 
 - Semua operasi tersimpan lokal dulu (Dexie/IndexedDB)
 - Sync ke Supabase cloud saat online
 - Multi-device: input di HP → muncul di tablet dalam hitungan detik
+
+### 3.7 Filter, Export & Laporan
+
+**Halaman `/transactions` — Riwayat Lengkap dengan Filter:**
+- Summary: Masuk / Keluar / Net (berdasarkan filter aktif)
+- Filter lanjutan:
+  - Rentang tanggal (custom picker)
+  - Quick range: Hari ini, 7 hari, 30 hari, Bulan ini, Bulan lalu
+  - Jenis transaksi (multi-select: Pemasukan, Pengeluaran, Transfer)
+  - Dompet spesifik (dropdown)
+  - Kategori spesifik (dropdown dengan grouping income/expense)
+  - Search catatan
+- Badge indicator saat filter aktif + banner "Filter aktif"
+- Tombol Hapus filter untuk reset
+
+**Export CSV:**
+- Tombol Download di header `/transactions`
+- Export hanya transaksi **sesuai filter aktif** (bukan semua)
+- Format CSV: `Tanggal, Jenis, Kategori, Dompet, Nominal, Catatan, Dompet Tujuan`
+- Nama kategori & dompet di-resolve ke nama (bukan UUID)
+- Nominal angka murni untuk dihitung di Excel
+- Escaping CSV yang benar (kutip, koma, newline)
+- BOM UTF-8 untuk kompatibilitas Excel
+- Nama file: `alda-transaksi-YYYY-MM-DD.csv`
+
+**Halaman `/reports` — Laporan Bulanan:**
+- Dropdown pilih bulan (auto-detect bulan terbaru yang punya data)
+- **Tab Ringkasan**:
+  - Card Pemasukan (hijau) + delta % vs bulan lalu
+  - Card Pengeluaran (merah) + delta % vs bulan lalu
+  - Card Net Bulan Ini (gradient, surplus/defisit)
+  - Info: Total transaksi + total transfer
+- **Tab Kategori**:
+  - Bar chart Pengeluaran per Kategori (merah)
+  - Bar chart Pemasukan per Kategori (hijau)
+  - Sort dari nominal terbesar
+- **Tab Dompet**:
+  - Bar chart Pengeluaran per Dompet (merah)
+  - Bar chart Pemasukan per Dompet (hijau)
+  - Bar menggunakan warna dompet asli
+
+**Karakteristik chart:** Pure CSS bar chart — **zero dependency**, 0KB bundle tambahan, jalan offline sempurna.
 
 ---
 
@@ -179,7 +223,7 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 - Summary: Total Split & Total Pinjaman
 - Tap transaksi → buka detail (reuse `TransactionDetailModal`)
 - **Tidak ada tombol "Split Baru"** — karena split dibuat dari `+ Pengeluaran` biasa
-- Akses via link "Riwayat Split →" di section Riwayat Transaksi Dashboard
+- Akses via link "Split · Lihat Semua →" di section Riwayat Transaksi Dashboard
 
 ---
 
@@ -194,10 +238,12 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 | 4 | Utang/Piutang Eksternal & Internal + Pelunasan | ✅ Selesai |
 | Refactor | SoC (constants, lib, repos, services, stores, composables) | ✅ Selesai |
 | 5 | Split Bill — **terintegrasi di ExpenseModal** (UX-enhanced, bukan modal terpisah) | ✅ Selesai |
-| 6 (rencana) | Filter lanjutan, Laporan bulanan, Export CSV | ⬜ Belum |
+| 6 | Filter Lanjutan + Export CSV + Laporan Bulanan | ✅ Selesai |
 | 7 (rencana) | Onboarding & tutorial interaktif | ⬜ Belum |
 
-> **Catatan:** Fase 5 awalnya direncanakan sebagai modal terpisah (`SplitBillFormModal`), tapi setelah UX review, diputuskan untuk **melebur ke `ExpenseModal`** sebagai fitur otomatis saat saldo kurang. Modal `SplitBillFormModal` dihapus. Halaman `/split-bills` tetap ada sebagai **riwayat read-only**.
+> **Catatan revisi:**
+> - Fase 5 awalnya direncanakan sebagai modal terpisah (`SplitBillFormModal`), tapi setelah UX review, diputuskan untuk **melebur ke `ExpenseModal`** sebagai fitur otomatis saat saldo kurang. Modal `SplitBillFormModal` dihapus. Halaman `/split-bills` tetap ada sebagai **riwayat read-only**.
+> - Fase 6 mencakup 3 sub-fitur: Filter Lanjutan (halaman `/transactions`), Export CSV (tombol Download di halaman Transaksi), dan Laporan Bulanan (halaman `/reports` dengan 3 tab).
 
 ---
 
@@ -233,9 +279,9 @@ User Action → Store → Dexie (instan) → [background] Sync Engine → Supaba
 
 **Fitur yang mungkin nanti (tapi belum sekarang):**
 - Import CSV dari bank / e-wallet
-- Laporan & grafik keuangan
 - Multi-currency
 - Budget & alert
+- Chart library (Chart.js) untuk donut/line chart
 
 ---
 
@@ -255,6 +301,7 @@ User Action → Store → Dexie (instan) → [background] Sync Engine → Supaba
 | **Soft Delete** | Hapus data tapi ditandai `is_deleted: true` (untuk sync) |
 | **Last-Write-Wins** | Aturan konflik sync: yang terakhir `updated_at` menang |
 | **Seed Default** | Isi otomatis (misal 13 kategori) saat user baru login |
+| **Bar Chart CSS** | Grafik batang horizontal dengan div + CSS (zero dependency) |
 
 ---
 
@@ -272,7 +319,8 @@ User Action → Store → Dexie (instan) → [background] Sync Engine → Supaba
 |---|---|
 | 2026-11-11 | Dokumen dibuat. Mendefinisikan Split Bill secara final (split payment multi-wallet, BUKAN bagi tagihan ke teman). |
 | 2026-11-11 | Revisi 1: Tambah 3.4 (Kategori), sisipkan Fase 3.5 di roadmap. |
-| 2026-11-11 | **Revisi 2:** Fase 3.5 & 5 selesai. UX Split Bill berubah — tidak lagi modal terpisah, tapi fitur otomatis di `ExpenseModal`. `SplitBillFormModal` dihapus. Halaman `/split-bills` jadi riwayat read-only. Kategori selector jadi modal picker. Update 4.5 (alur UX baru), Section 5 (status roadmap), Section 8 (glosarium: Dompet Utama, Dompet Talangan). |
+| 2026-11-11 | Revisi 2: Fase 3.5 & 5 selesai. UX Split Bill berubah — tidak lagi modal terpisah, tapi fitur otomatis di `ExpenseModal`. `SplitBillFormModal` dihapus. Halaman `/split-bills` jadi riwayat read-only. Kategori selector jadi modal picker. Update 4.5 (alur UX baru), Section 5 (status roadmap), Section 8 (glosarium). |
+| 2026-11-11 | **Revisi 3:** Fase 6 selesai. Tambah Section 3.7 (Filter, Export & Laporan). Update roadmap (Fase 6 ✅, Fase 7 rencana onboarding). Update Section 7 (non-goals: chart library sebagai future). Tambah glosarium "Bar Chart CSS". |
 
 ---
 

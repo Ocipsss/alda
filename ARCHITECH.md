@@ -1,6 +1,4 @@
-📄 ARCHITECTURE.md — Update + Restore Formatting
-
-File yang kamu kirim memiliki beberapa formatting yang rusak (kemungkinan copy-paste dari viewer yang tidak render markdown). Saya restore formatnya plus update konten: tambah CategoryPickerModal, CategoryItem, CategoryFormModal, Categories.vue, SplitBills.vue; hapus folder split-bill/; tambah subsection "Category Picker Pattern".
+📄 ARCHITECTURE.md
 
 ```markdown
 # Alda — Architecture & Technical Documentation
@@ -73,7 +71,7 @@ Alda adalah PWA (Progressive Web App) **offline-first** yang menggabungkan:
 ```text
 src/
 ├── App.vue                        # Root — panggil useAutoSync()
-├── main.js                        # Bootstrap — mount + auth init + registerSW
+├── main.js                        # Bootstrap — guard sebelum router + registerSW
 ├── style.css                      # Tailwind v4 + tema
 │
 ├── assets/                        # Static assets Vue
@@ -100,10 +98,14 @@ src/
 │   │   ├── ExpenseModal.vue       # Multi-wallet + auto-talangan + loan flag
 │   │   ├── TransferModal.vue
 │   │   ├── TransactionItem.vue
-│   │   └── TransactionDetailModal.vue
-│   └── debt/                      # Debt-related
-│       ├── DebtFormModal.vue
-│       └── DebtPaymentModal.vue
+│   │   ├── TransactionDetailModal.vue
+│   │   └── TransactionFilterModal.vue  # Filter lanjutan
+│   ├── debt/                      # Debt-related
+│   │   ├── DebtFormModal.vue
+│   │   └── DebtPaymentModal.vue
+│   └── report/                    # Report-related
+│       ├── MonthPicker.vue        # Dropdown pilih bulan
+│       └── BarChart.vue           # Pure CSS horizontal bar
 │
 ├── composables/                   # Vue composables
 │   └── useAutoSync.js             # Global sync lifecycle
@@ -125,7 +127,10 @@ src/
 │   ├── supabase.js                # Supabase client
 │   ├── balance.js                 # computeBalances (pure function)
 │   ├── format.js                  # formatCurrency, formatDate, formatDateISO
-│   └── sync-engine.js             # Unified sync (push + pull + retry)
+│   ├── sync-engine.js             # Unified sync (push + pull + retry)
+│   ├── filter.js                  # Filter & summarize transaksi (pure)
+│   ├── csv.js                     # Generate & download CSV (pure)
+│   └── report.js                  # Monthly report compute (pure)
 │
 ├── repositories/                  # Data access layer (Dexie only)
 │   ├── base.repo.js               # createRepo factory
@@ -161,7 +166,9 @@ src/
     ├── Dashboard.vue
     ├── Debts.vue
     ├── Categories.vue
-    └── SplitBills.vue
+    ├── SplitBills.vue
+    ├── Transactions.vue           # Halaman riwayat lengkap + filter + export
+    └── Reports.vue                # Laporan bulanan (3 tab)
 ```
 
 ---
@@ -203,6 +210,9 @@ supabase.js Supabase client singleton
 balance.js computeBalances() — hitung saldo per wallet dari transaksi
 format.js formatCurrency(), formatDate(), formatDateISO()
 sync-engine.js syncTable(), syncMany(), syncTableWithRetry()
+filter.js applyFilter(), summarize(), defaultFilter(), preset date ranges
+csv.js generateCSV(), downloadCSV(), exportTransactionsCSV()
+report.js computeMonthlyReport(), getAvailableMonths(), monthLabel()
 
 Aturan:
 
@@ -408,7 +418,7 @@ lib/sync-engine.js:
 async function syncTable(name) {
   // 1. Guard offline
   if (!navigator.onLine) return { pushed: 0, failed: 0, pulled: 0 }
-  
+
   // 2. PUSH pending rows
   const pending = await table.filter(r => r._pending).toArray()
   for (const row of pending) {
@@ -416,14 +426,14 @@ async function syncTable(name) {
     const { error } = await supabase.from(name).upsert(clean)
     if (!error) await table.update(row.id, { _pending: false })
   }
-  
+
   // 3. PULL remote changes sejak last_sync_at
   const last = await getMeta(`${name}_sync_at`)
   const { data } = await supabase.from(name)
     .select('*')
     .gt('updated_at', last)
     .order('updated_at')
-  
+
   // 4. Last-Write-Wins
   for (const remote of data) {
     const local = await table.get(remote.id)
@@ -431,7 +441,7 @@ async function syncTable(name) {
       await table.put({ ...remote, _pending: false })
     }
   }
-  
+
   // 5. Update last_sync_at
   await setMeta(`${name}_sync_at`, data.at(-1)?.updated_at)
 }
@@ -492,14 +502,14 @@ export const useXStore = defineStore('x', () => {
   // State
   const items = ref([])
   const loading = ref(false)
-  
+
   // Computed
   const activeItems = computed(() => items.value.filter(i => !i.is_deleted))
-  
+
   // Actions
   async function loadLocal() { /* ... */ }
   async function create(payload) { /* ... */ }
-  
+
   return { items, loading, activeItems, loadLocal, create }
 })
 ```
@@ -660,6 +670,88 @@ Karakteristik:
 · Kalau masih kurang setelah semua dompet dipakai → warning merah + submit disabled
 · Reuse transactionService.createExpense() (logic backend sama dengan Fase 3)
 
+7.6 Filter Pattern (Halaman Transaksi)
+
+Halaman /transactions menggunakan filter aktif sebagai state lokal di view (bukan di store global), supaya filter yang sama tidak bocor ke view lain.
+
+State:
+
+```js
+const filter = ref(defaultFilter())  // dari lib/filter.js
+const filteredTransactions = computed(() =>
+  applyFilter(txStore.activeTransactions, filter.value)
+)
+const stats = computed(() => summarize(filteredTransactions.value))
+```
+
+Modal picker:
+
+· TransactionFilterModal.vue — menerima currentFilter prop, emit apply dengan objek filter baru
+· State form lokal, di-reset dari currentFilter saat modal dibuka
+· Tombol "Reset" → set defaultFilter()
+· Tombol "Terapkan" → emit apply
+
+Default filter: Bulan ini, semua jenis transaksi.
+
+Badge indicator: Kalau ada filter aktif (selain default), tampil dot biru di tombol Filter + banner "Filter aktif" di bawah summary.
+
+7.7 Reports Pattern (Laporan Bulanan)
+
+Halaman /reports menampilkan analisis bulanan. Zero chart library — pakai CSS murni.
+
+Tab structure:
+
+· Ringkasan — summary cards + delta % vs bulan lalu
+· Kategori — bar chart per kategori (income & expense)
+· Dompet — bar chart per dompet (in & out)
+
+Bar chart CSS (BarChart.vue):
+
+```vue
+<div class="bg-slate-100 rounded-full h-2 overflow-hidden">
+  <div
+    class="h-full rounded-full transition-all duration-500 bg-red-500"
+    :style="{ width: widthPercent + '%' }"
+  />
+</div>
+```
+
+Karakteristik:
+
+· widthPercent = (item.total / maxValue) * 100
+· Minimal 3% supaya bar kecil tetap terlihat
+· Sort descending by total
+· Support icon kategori (dari LucideIcons)
+· Support dot warna dompet
+· Kalau item kosong → tampil empty text
+
+Data flow:
+
+```js
+const report = computed(() =>
+  computeMonthlyReport({
+    transactions: txStore.activeTransactions,
+    wallets: walletStore.wallets,
+    categories: catStore.categories,
+    year: selectedMonth.value.year,
+    month: selectedMonth.value.month
+  })
+)
+```
+
+Auto-select bulan: Saat onMounted, iterasi getAvailableMonths() dan pilih bulan terbaru yang punya count > 0.
+
+Delta calculation:
+
+```js
+function pctChange(curr, prev) {
+  if (!prev || prev === 0) return null
+  return ((curr - prev) / prev) * 100
+}
+```
+
+null = tidak ditampilkan (karena tidak ada data bulan lalu untuk bandingkan).
+
 ---
 
 8. PWA & Service Worker
@@ -745,6 +837,14 @@ Pola sama untuk semua tabel. Detail per-tabel ada di SQL setup.
 
 Development: matikan "Confirm email" di Supabase Dashboard → user langsung bisa login setelah register.
 
+9.4 Auth Hardening
+
+· Pre-signOut: signIn() memanggil signOut({ scope: 'local' }) dulu untuk clear session corrupt (misal setelah clear site data)
+· Auto-recovery: init() mendeteksi getSession() error → force signOut untuk reset state
+· Force clear: signOut() selalu reset session = null, user = null di finally block meski Supabase call gagal
+· Password toggle: Ikon mata di Login form untuk show/hide password
+· Trim email: Input email di-trim sebelum submit (cegah error "invalid credentials" karena spasi tak sengaja)
+
 ---
 
 10. Alur Auth
@@ -752,17 +852,19 @@ Development: matikan "Confirm email" di Supabase Dashboard → user langsung bis
 ```text
 1. main.js bootstrap
    ↓
-2. useAuthStore().init()
+2. Guard dipasang SEBELUM app.use(router) — agar navigasi awal tervalidasi
    ↓
-3. supabase.auth.getSession() — cek session tersimpan
+3. useAuthStore().init() — getSession + onAuthStateChange
    ↓
-4. Router guard — kalau belum auth, redirect ke /login
+4. Kalau belum ready → guard await auth.init()
    ↓
-5. Login/Register modal
+5. Kalau route butuh auth & belum login → redirect ke /login
    ↓
-6. supabase.auth.signInWithPassword / signUp
+6. Login/Register form
    ↓
-7. Session tersimpan, redirect ke /
+7. supabase.auth.signInWithPassword / signUp
+   ↓
+8. Session tersimpan → redirect ke /
 ```
 
 Multi-device: session per device independen. Login di HP & tablet → keduanya punya session sendiri. Sync data via database (bukan session).
@@ -808,6 +910,17 @@ Kalau update tapi browser masih tampilkan versi lama:
 2. Atau hard reload: Ctrl+Shift+R
 3. Atau DevTools → Application → Service Workers → Unregister
 
+12.4 Update PWA di HP
+
+Cara yang benar (jangan "clear cache" — bisa korupsi session):
+
+1. Deploy versi baru ke Vercel
+2. Buka app Alda → tunggu 5 detik (SW deteksi update)
+3. Tutup app (swipe up / tombol back)
+4. Buka app lagi → versi baru aktif
+
+Atau, kalau masalah persist: uninstall & reinstall PWA dari home screen. Data akan balik setelah login (sync dari Supabase).
+
 ---
 
 13. Testing Checklist
@@ -817,10 +930,13 @@ Sebelum deploy, verifikasi:
 13.1 Auth
 
 ☐ Register berhasil
-☐ Login berhasil
+☐ Login berhasil (dengan email & password benar)
+☐ Password visibility toggle bekerja (Eye/EyeOff)
 ☐ Session persist setelah refresh
 ☐ Logout berhasil
 ☐ Route /debts redirect ke /login kalau belum auth
+☐ Setelah clear site data → buka app redirect ke /login (bukan dashboard kosong)
+☐ Setelah clear site data → login berhasil (pre-signOut clear corrupt state)
 
 13.2 Wallet
 
@@ -863,18 +979,55 @@ Sebelum deploy, verifikasi:
 ☐ Semua dompet terpakai masih kurang → warning + submit disabled
 ☐ Buka /split-bills → history tampil (read-only)
 
-13.7 Sync & Offline
+13.7 Filter & Export CSV
+
+☐ Buka /transactions → default filter bulan ini
+☐ Quick range (Hari ini, 7 hari, 30 hari, Bulan ini, Bulan lalu) → tanggal auto-isi
+☐ Multi-select jenis (income/expense/transfer) → filter bekerja
+☐ Filter dompet & kategori → filter bekerja
+☐ Search catatan → filter bekerja
+☐ Badge dot muncul saat filter aktif
+☐ Banner "Filter aktif — X transaksi" muncul
+☐ Tombol Hapus reset ke default
+☐ Tombol Download → file .csv ter-download
+☐ CSV berisi transaksi sesuai filter aktif (bukan semua)
+☐ Nama kategori & dompet ter-resolve (bukan UUID)
+☐ Buka di Excel → escaping benar (koma, kutip, newline)
+☐ Toast feedback muncul setelah export
+
+13.8 Reports
+
+☐ Buka /reports → default bulan ini / bulan terbaru yang punya data
+☐ Tab Ringkasan:
+  ☐ Card Pemasukan + delta % (kalau ada bulan lalu)
+  ☐ Card Pengeluaran + delta %
+  ☐ Card Net (surplus hijau / defisit merah)
+  ☐ Total transaksi + total transfer
+☐ Tab Kategori:
+  ☐ Bar chart pengeluaran per kategori (merah)
+  ☐ Bar chart pemasukan per kategori (hijau)
+  ☐ Sort descending by total
+☐ Tab Dompet:
+  ☐ Bar chart pengeluaran per dompet
+  ☐ Bar chart pemasukan per dompet
+  ☐ Bar menggunakan warna dompet asli
+☐ Ganti bulan di dropdown → semua tab update
+☐ Bulan kosong → empty state
+☐ Bar kecil tetap terlihat (min 3%)
+
+13.9 Sync & Offline
 
 ☐ Offline → tambah data → tetap sukses (Dexie)
 ☐ Online → data ter-sync ke Supabase dalam 30 detik
 ☐ Multi-device → login di 2 browser → data sinkron
 ☐ Soft delete → row di Supabase masih ada dengan is_deleted: true
 
-13.8 PWA
+13.10 PWA
 
 ☐ Tombol Install muncul di Chrome
 ☐ Aplikasi bisa dibuka offline
 ☐ Update otomatis (registerType: autoUpdate)
+☐ Uninstall & reinstall dari Chrome → data balik setelah login (sync dari Supabase)
 
 ---
 
@@ -895,64 +1048,8 @@ Sebelum deploy, verifikasi:
 Tanggal Perubahan
 2026-11-11 Dokumen dibuat. Mencakup arsitektur lengkap pasca-refactor SoC (constants, lib, repos, services, stores, composables).
 2026-11-11 Revisi 1: Restore formatting markdown yang rusak. Update struktur folder: tambah CategoryPickerModal.vue, components/category/, views/Categories.vue, views/SplitBills.vue; hapus folder components/split-bill/. Tambah subsection 7.4 (Category Picker Pattern) & 7.5 (ExpenseModal Split Payment Otomatis). Update testing checklist.
+2026-11-11 Revisi 2: Fase 6 selesai. Update struktur folder: tambah lib/filter.js, lib/csv.js, lib/report.js, components/transaction/TransactionFilterModal.vue, components/report/MonthPicker.vue, components/report/BarChart.vue, views/Transactions.vue, views/Reports.vue. Tambah subsection 7.6 (Filter Pattern), 7.7 (Reports Pattern). Update section 3.2 (Lib) dengan 3 file baru. Update section 9.4 (Auth Hardening). Update section 12.4 (Update PWA di HP). Tambah testing 13.7 (Filter & Export) & 13.8 (Reports); renumber sync & PWA jadi 13.9 & 13.10.
 
 ---
 
 © Alda 2026
-
-```
-
----
-
-## 🔍 Ringkasan Perubahan
-
-### `CONCEPT.md`
-| Bagian | Perubahan |
-|---|---|
-| 3.4 Kategori | Update: UI CRUD sudah ada di `/categories`, selector pakai modal picker |
-| 3.5 Utang & Piutang | Penomoran geser (dari 3.5 → tetap 3.5, dari 3.6) |
-| 4.4 Relasi | Update: "Fase 5" → "Split Bill" (bukan fase, sudah terintegrasi) |
-| **4.5 UX Split Bill** | **Rewrite total** — dari "Wizard terpisah" ke "Alur `+ Pengeluaran` dengan talangan otomatis" |
-| 5 Roadmap | Fase 3.5 & 5 → ✅ Selesai; tambah catatan UX revamp |
-| 8 Glosarium | Tambah: Dompet Utama, Dompet Talangan |
-| 10 Riwayat | Tambah Revisi 2 |
-
-### `ARCHITECTURE.md`
-| Bagian | Perubahan |
-|---|---|
-| **Formatting** | **Restore markdown yang rusak** (code blocks, headers, tables) |
-| 2 Struktur Folder | Tambah: `CategoryPickerModal.vue`, `components/category/`, `views/Categories.vue`, `views/SplitBills.vue`; **hapus** `components/split-bill/` |
-| 4.1 Tabel | Tambah catatan: `split_bills`/`split_bill_members` belum dipakai |
-| 7.3 Icon & Color Picker | Tambah: di-nest juga di `CategoryFormModal` |
-| **7.4 Category Picker Pattern** | **Subsection BARU** |
-| **7.5 ExpenseModal Split Payment** | **Subsection BARU** |
-| 13 Testing | Tambah 13.3 Category, 13.6 Split Payment; renumber |
-| 15 Riwayat | Tambah Revisi 1 |
-
----
-
-## 💾 Commit
-
-```bash
-git add CONCEPT.md ARCHITECTURE.md
-git commit -m "docs: update CONCEPT and ARCHITECTURE for post-Fase-5 UX revamp
-
-CONCEPT.md:
-- Mark Fase 3.5 & 5 as complete
-- Rewrite section 4.5 (Split Bill UX is now inside ExpenseModal, not a separate modal)
-- Update section 3.4 (Category CRUD UI exists at /categories)
-- Add glossary terms: Dompet Utama, Dompet Talangan
-- Add revision history entry
-
-ARCHITECTURE.md:
-- Restore markdown formatting (broken code blocks, headers, tables)
-- Update folder structure (add CategoryPickerModal, components/category/,
-  views/Categories.vue, views/SplitBills.vue; remove components/split-bill/)
-- Add subsection 7.4 (Category Picker Pattern)
-- Add subsection 7.5 (ExpenseModal Split Payment Auto-Talangan)
-- Update testing checklist (13.3 Category, 13.6 Split Payment)
-- Add revision history entry"
-git push origin main
-```
-
----
