@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ArrowLeft, Filter, X, TrendingUp, TrendingDown, ArrowLeftRight, Search } from 'lucide-vue-next'
+import { ArrowLeft, Filter, X, TrendingUp, TrendingDown, Search, Download } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import TransactionItem from '../components/transaction/TransactionItem.vue'
 import TransactionDetailModal from '../components/transaction/TransactionDetailModal.vue'
@@ -9,6 +9,7 @@ import { useTransactionStore } from '../stores/transaction'
 import { useWalletStore } from '../stores/wallet'
 import { useCategoryStore } from '../stores/category'
 import { applyFilter, summarize, defaultFilter } from '../lib/filter'
+import { exportTransactionsCSV } from '../lib/csv'
 import { formatCurrency } from '../lib/format'
 
 const router = useRouter()
@@ -20,6 +21,10 @@ const showFilter = ref(false)
 const showDetail = ref(false)
 const detailTx = ref(null)
 const filter = ref(defaultFilter())
+
+const exporting = ref(false)
+const toast = ref(null) // { type: 'success' | 'error', message: string }
+let toastTimer = null
 
 const filteredTransactions = computed(() =>
   applyFilter(txStore.activeTransactions, filter.value)
@@ -70,6 +75,43 @@ function onApplyFilter(newFilter) {
 function clearFilter() {
   filter.value = defaultFilter()
 }
+
+function showToast(type, message) {
+  toast.value = { type, message }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toast.value = null
+  }, 3000)
+}
+
+function handleExport() {
+  if (exporting.value) return
+  exporting.value = true
+
+  try {
+    const result = exportTransactionsCSV({
+      transactions: filteredTransactions.value,
+      wallets: walletStore.wallets,
+      categories: catStore.categories
+    })
+
+    if (!result.ok) {
+      if (result.reason === 'empty') {
+        showToast('error', 'Tidak ada transaksi untuk di-export')
+      } else {
+        showToast('error', 'Gagal export CSV')
+      }
+      return
+    }
+
+    showToast('success', `${result.count} transaksi ter-export ke ${result.filename}`)
+  } catch (e) {
+    console.error('[export] failed:', e)
+    showToast('error', 'Gagal export: ' + (e.message || 'unknown'))
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -81,10 +123,21 @@ function clearFilter() {
       >
         <ArrowLeft class="w-5 h-5" />
       </button>
-      <div class="flex-1">
+      <div class="flex-1 min-w-0">
         <h1 class="text-xl font-bold">Transaksi</h1>
-        <p class="text-xs text-slate-500">Semua riwayat transaksi</p>
+        <p class="text-xs text-slate-500 truncate">Semua riwayat transaksi</p>
       </div>
+      <button
+        @click="handleExport"
+        :disabled="exporting || !filteredTransactions.length"
+        class="p-2 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        title="Export CSV"
+      >
+        <Download
+          class="w-5 h-5 text-slate-600"
+          :class="{ 'animate-pulse': exporting }"
+        />
+      </button>
       <button
         @click="showFilter = true"
         class="relative flex items-center gap-1 p-2 rounded-lg hover:bg-slate-100"
@@ -163,6 +216,19 @@ function clearFilter() {
       </div>
     </main>
 
+    <!-- Toast -->
+    <Transition name="toast">
+      <div
+        v-if="toast"
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[90%] px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2"
+        :class="toast.type === 'success'
+          ? 'bg-green-600 text-white'
+          : 'bg-red-600 text-white'"
+      >
+        {{ toast.message }}
+      </div>
+    </Transition>
+
     <TransactionFilterModal
       v-model="showFilter"
       :current-filter="filter"
@@ -176,3 +242,15 @@ function clearFilter() {
     />
   </div>
 </template>
+
+<style scoped>
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 20px);
+}
+</style>
