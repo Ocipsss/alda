@@ -1,6 +1,12 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
-import { HandCoins, AlertCircle, Wallet as WalletIcon, CheckCircle2 } from 'lucide-vue-next'
+import {
+  HandCoins,
+  AlertCircle,
+  Wallet as WalletIcon,
+  CheckCircle2,
+  TrendingDown
+} from 'lucide-vue-next'
 import BaseModal from '../ui/BaseModal.vue'
 import BaseButton from '../ui/BaseButton.vue'
 import WalletSelect from '../ui/WalletSelect.vue'
@@ -26,7 +32,11 @@ function emptyForm() {
     category_id: null,
     note: '',
     primary: { wallet_id: null, amount: '' },
-    talangan: [] // [{ wallet_id, amount, is_loan }]
+    talangan: [], // [{ wallet_id, amount, is_loan }]
+    // Piutang mode
+    isReceivable: false,
+    party_name: '',
+    due_date: ''
   }
 }
 
@@ -55,24 +65,21 @@ function autoBalance() {
     return
   }
 
-  // Primary amount = min(total, saldo primary)
   const primaryBal = balanceOf(primaryId)
   const primaryTake = Math.min(total, primaryBal)
   form.value.primary.amount = primaryTake
 
-  // Cek shortfall
   let shortfall = total - primaryTake
   if (shortfall <= 0.01) {
     form.value.talangan = []
     return
   }
 
-  // Auto-fill talangan
   const usedIds = new Set([primaryId])
   const talangan = []
 
   while (shortfall > 0.01) {
-    const nextWallet = walletStore.activeWallets.find(
+    const nextWallet = walletStore.realWallets.find(
       w => !usedIds.has(w.id) && balanceOf(w.id) > 0
     )
     if (!nextWallet) break
@@ -97,8 +104,8 @@ function autoBalance() {
 watch(() => props.modelValue, (open) => {
   if (open) {
     form.value = emptyForm()
-    if (walletStore.activeWallets.length === 1) {
-      form.value.primary.wallet_id = walletStore.activeWallets[0].id
+    if (walletStore.realWallets.length === 1) {
+      form.value.primary.wallet_id = walletStore.realWallets[0].id
     }
   }
 })
@@ -109,7 +116,19 @@ watch(
   () => autoBalance()
 )
 
+// Kalau user aktifkan piutang mode, reset split payments (tidak boleh digabung)
+watch(
+  () => form.value.isReceivable,
+  (isOn) => {
+    if (isOn) {
+      form.value.talangan = []
+    }
+  }
+)
+
 // --- Computed helpers ---
+const hasSplitPayment = computed(() => form.value.talangan.length > 0)
+
 const totalTalangan = computed(() =>
   form.value.talangan.reduce((s, t) => s + Number(t.amount || 0), 0)
 )
@@ -129,7 +148,6 @@ const isBalanced = computed(() =>
 const primaryShortfall = computed(() => {
   if (!form.value.primary.wallet_id) return 0
   const bal = balanceOf(form.value.primary.wallet_id)
-  const amount = Number(form.value.primary.amount || 0)
   return Math.max(0, Number(form.value.amount || 0) - bal)
 })
 
@@ -139,8 +157,11 @@ const showTalangan = computed(() =>
 
 const noMoreWallets = computed(() => {
   if (!form.value.primary.wallet_id) return false
-  const usedIds = new Set([form.value.primary.wallet_id, ...form.value.talangan.map(t => t.wallet_id)])
-  return walletStore.activeWallets.every(w => usedIds.has(w.id))
+  const usedIds = new Set([
+    form.value.primary.wallet_id,
+    ...form.value.talangan.map(t => t.wallet_id)
+  ])
+  return walletStore.realWallets.every(w => usedIds.has(w.id))
 })
 
 const balancePreview = computed(() => {
@@ -172,39 +193,67 @@ const balancePreview = computed(() => {
   return items
 })
 
-const canSubmit = computed(() =>
-  Number(form.value.amount) > 0 &&
-  form.value.category_id &&
-  form.value.primary.wallet_id &&
-  Number(form.value.primary.amount) > 0 &&
-  isBalanced.value
-)
+const canSubmit = computed(() => {
+  // Basic requirements
+  if (
+    Number(form.value.amount) <= 0 ||
+    !form.value.category_id ||
+    !form.value.primary.wallet_id ||
+    Number(form.value.primary.amount) <= 0 ||
+    !isBalanced.value
+  ) {
+    return false
+  }
+
+  // Piutang mode: wajib nama pihak
+  if (form.value.isReceivable) {
+    if (!form.value.party_name.trim()) return false
+    // Tidak boleh ada split payment
+    if (hasSplitPayment.value) return false
+  }
+
+  return true
+})
 
 // --- Submit ---
 async function submit() {
   if (!canSubmit.value) return
   saving.value = true
   try {
-    const payments = [
-      {
+    if (form.value.isReceivable) {
+      // Catat sebagai piutang ke pihak luar
+      await txStore.createExpenseWithBorrower({
+        amount: Number(form.value.amount),
+        date: form.value.date,
         wallet_id: form.value.primary.wallet_id,
-        amount: Number(form.value.primary.amount),
-        is_loan: false
-      },
-      ...form.value.talangan.map(t => ({
-        wallet_id: t.wallet_id,
-        amount: Number(t.amount),
-        is_loan: t.is_loan
-      }))
-    ]
+        category_id: form.value.category_id,
+        note: form.value.note,
+        party_name: form.value.party_name.trim(),
+        due_date: form.value.due_date || null
+      })
+    } else {
+      // Expense biasa (single / multi-wallet)
+      const payments = [
+        {
+          wallet_id: form.value.primary.wallet_id,
+          amount: Number(form.value.primary.amount),
+          is_loan: false
+        },
+        ...form.value.talangan.map(t => ({
+          wallet_id: t.wallet_id,
+          amount: Number(t.amount),
+          is_loan: t.is_loan
+        }))
+      ]
 
-    await txStore.createExpense({
-      amount: Number(form.value.amount),
-      date: form.value.date,
-      category_id: form.value.category_id,
-      note: form.value.note,
-      payments
-    })
+      await txStore.createExpense({
+        amount: Number(form.value.amount),
+        date: form.value.date,
+        category_id: form.value.category_id,
+        note: form.value.note,
+        payments
+      })
+    }
 
     emit('saved')
     emit('update:modelValue', false)
@@ -213,13 +262,13 @@ async function submit() {
   }
 }
 
-// Saran dompet yang belum dipakai (untuk pesan "saldo tidak cukup")
+// Saran dompet yang belum dipakai
 const unusedWallets = computed(() => {
   const usedIds = new Set([
     form.value.primary.wallet_id,
     ...form.value.talangan.map(t => t.wallet_id)
   ].filter(Boolean))
-  return walletStore.activeWallets.filter(w => !usedIds.has(w.id))
+  return walletStore.realWallets.filter(w => !usedIds.has(w.id))
 })
 </script>
 
@@ -262,11 +311,10 @@ const unusedWallets = computed(() => {
       <div class="space-y-2">
         <WalletSelect
           v-model="form.primary.wallet_id"
-          :wallets="walletStore.activeWallets"
+          :wallets="walletStore.realWallets"
           label="Dompet Utama"
         />
 
-        <!-- Info saldo + input nominal (setelah dompet dipilih) -->
         <div v-if="form.primary.wallet_id" class="bg-slate-50 rounded-xl p-3 space-y-2">
           <div class="flex justify-between text-xs">
             <span class="text-slate-500">Saldo tersedia</span>
@@ -311,7 +359,7 @@ const unusedWallets = computed(() => {
 
           <WalletSelect
             v-model="t.wallet_id"
-            :wallets="walletStore.activeWallets"
+            :wallets="walletStore.realWallets"
             :exclude="[
               form.primary.wallet_id,
               ...form.talangan.filter((_, idx) => idx !== i).map(x => x.wallet_id)
@@ -333,7 +381,6 @@ const unusedWallets = computed(() => {
             class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
 
-          <!-- Toggle pinjam -->
           <div class="flex items-center justify-between pt-1">
             <div>
               <p class="text-xs font-medium text-slate-700">Tandai sebagai Pinjaman</p>
@@ -359,7 +406,6 @@ const unusedWallets = computed(() => {
           </div>
         </div>
 
-        <!-- Info: dompet habis -->
         <div
           v-if="remaining > 0.01 && noMoreWallets"
           class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700"
@@ -370,6 +416,61 @@ const unusedWallets = computed(() => {
           </p>
           <p>Semua dompet sudah terpakai, masih kurang {{ formatCurrency(remaining) }}</p>
         </div>
+      </div>
+
+      <!-- Checkbox: catat sebagai piutang -->
+      <div
+        class="border rounded-xl p-3 space-y-3 transition"
+        :class="hasSplitPayment
+          ? 'bg-slate-50 border-slate-200 opacity-60'
+          : 'bg-emerald-50 border-emerald-200'"
+      >
+        <label class="flex items-start gap-2 cursor-pointer" :class="{ 'cursor-not-allowed': hasSplitPayment }">
+          <input
+            v-model="form.isReceivable"
+            type="checkbox"
+            :disabled="hasSplitPayment"
+            class="mt-0.5 accent-emerald-600"
+          />
+          <span class="flex-1">
+            <span class="flex items-center gap-1 font-medium text-sm"
+              :class="hasSplitPayment ? 'text-slate-500' : 'text-emerald-900'">
+              <TrendingDown class="w-4 h-4" />
+              Catat sebagai piutang ke pihak luar
+            </span>
+            <span class="block text-xs mt-0.5"
+              :class="hasSplitPayment ? 'text-slate-400' : 'text-emerald-700'">
+              {{ hasSplitPayment
+                ? 'Tidak bisa digabung dengan split payment (dompet talangan)'
+                : 'Uang keluar sekarang, tapi tercatat sebagai piutang ke pihak lain.' }}
+            </span>
+          </span>
+        </label>
+
+        <template v-if="form.isReceivable && !hasSplitPayment">
+          <div>
+            <label class="block text-xs font-medium text-emerald-900 mb-1">
+              Nama Pihak <span class="text-red-600">*</span>
+            </label>
+            <input
+              v-model="form.party_name"
+              type="text"
+              placeholder="Contoh: Andi, Koperasi Maju"
+              class="w-full px-3 py-2 rounded-lg border border-emerald-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-emerald-900 mb-1">
+              Jatuh Tempo (opsional)
+            </label>
+            <input
+              v-model="form.due_date"
+              type="date"
+              class="w-full px-3 py-2 rounded-lg border border-emerald-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+        </template>
       </div>
 
       <!-- Summary -->
@@ -394,7 +495,7 @@ const unusedWallets = computed(() => {
         </div>
       </div>
 
-      <!-- Preview saldo before/after -->
+      <!-- Preview saldo -->
       <div
         v-if="balancePreview.length > 0"
         class="bg-white border border-slate-200 rounded-xl p-3 space-y-2"

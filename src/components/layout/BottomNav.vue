@@ -1,6 +1,6 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
-import { Home, Receipt, BarChart3, Settings as SettingsIcon } from 'lucide-vue-next'
+import { Home, Receipt, Wallet, Settings as SettingsIcon } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -8,12 +8,18 @@ const router = useRouter()
 const tabs = [
   { name: 'dashboard', label: 'Beranda', icon: Home },
   { name: 'transactions', label: 'Transaksi', icon: Receipt },
-  { name: 'reports', label: 'Laporan', icon: BarChart3 },
+  { name: 'wallets', label: 'Dompet', icon: Wallet },
   { name: 'settings', label: 'Setting', icon: SettingsIcon }
 ]
 
+// Tab aktif juga saat berada di sub-route (misal /wallets/:id tetap aktif di tab Wallets)
+const activeTab = {
+  'wallet-detail': 'wallets'
+}
+
 function isActive(name) {
-  return route.name === name
+  if (route.name === name) return true
+  return activeTab[route.name] === name
 }
 
 function go(name) {

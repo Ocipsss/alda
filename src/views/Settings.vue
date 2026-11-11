@@ -1,6 +1,14 @@
 <script setup>
 import { useRouter } from 'vue-router'
-import { HandCoins, Tag, Split, LogOut, Info, ChevronRight } from 'lucide-vue-next'
+import {
+  HandCoins,
+  Tag,
+  Split,
+  BarChart3,
+  LogOut,
+  Info,
+  ChevronRight
+} from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { APP_NAME } from '../constants/app'
 
@@ -60,10 +68,26 @@ function go(name) {
         </div>
       </section>
 
-      <!-- Riwayat -->
+      <!-- Riwayat & Analitik -->
       <section>
-        <h2 class="text-xs font-semibold text-slate-500 uppercase mb-2 px-1">Riwayat</h2>
+        <h2 class="text-xs font-semibold text-slate-500 uppercase mb-2 px-1">
+          Riwayat & Analitik
+        </h2>
         <div class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+          <button
+            @click="go('reports')"
+            class="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition text-left"
+          >
+            <div class="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <BarChart3 class="w-5 h-5" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="font-medium text-sm">Laporan</p>
+              <p class="text-xs text-slate-500">Analisis keuangan bulanan</p>
+            </div>
+            <ChevronRight class="w-4 h-4 text-slate-400 shrink-0" />
+          </button>
+
           <button
             @click="go('split-bills')"
             class="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition text-left"

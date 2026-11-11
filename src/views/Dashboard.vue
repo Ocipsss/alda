@@ -1,6 +1,13 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Wallet as WalletIcon, ScrollText, ArrowRight, RefreshCw } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import {
+  Plus,
+  Wallet as WalletIcon,
+  ScrollText,
+  ArrowRight,
+  RefreshCw
+} from 'lucide-vue-next'
 import BaseButton from '../components/ui/BaseButton.vue'
 import WalletCard from '../components/wallet/WalletCard.vue'
 import WalletFormModal from '../components/wallet/WalletFormModal.vue'
@@ -17,11 +24,13 @@ import { useTransactionStore } from '../stores/transaction'
 import { useAutoSync } from '../composables/useAutoSync'
 import { seedCategories } from '../db/seed'
 import { formatCurrency } from '../lib/format'
+import { computeTotalReal } from '../lib/balance'
 
 const auth = useAuthStore()
 const walletStore = useWalletStore()
 const catStore = useCategoryStore()
 const txStore = useTransactionStore()
+const router = useRouter()
 
 // Sync lifecycle global (timer + event online) — dipasang sekali di App.vue
 const { syncing, syncAll } = useAutoSync()
@@ -31,17 +40,26 @@ const showIncome = ref(false)
 const showExpense = ref(false)
 const showTransfer = ref(false)
 const showDetail = ref(false)
-const editingWallet = ref(null)
 const detailTx = ref(null)
 const bootstrapped = ref(false)
 
+// ============ COMPUTED ============
+
 const balances = computed(() => txStore.balances(walletStore.wallets))
-const walletsWithBalance = computed(() =>
-  walletStore.activeWallets.map(w => ({ ...w, balance: balances.value[w.id] ?? 0 }))
+
+// Hanya wallet real (bukan temporer)
+const realWalletsWithBalance = computed(() =>
+  walletStore.realWallets.map(w => ({
+    ...w,
+    balance: balances.value[w.id] ?? 0
+  }))
 )
+
+// Total saldo aset riil (exclude wallet temporer)
 const totalBalance = computed(() =>
-  Object.values(balances.value).reduce((a, b) => a + b, 0)
+  computeTotalReal(balances.value, walletStore.wallets)
 )
+
 const recentTx = computed(() => txStore.activeTransactions.slice(0, 15))
 
 // Initial loading: setelah bootstrapped, kalau data kosong & masih syncing
@@ -49,17 +67,34 @@ const recentTx = computed(() => txStore.activeTransactions.slice(0, 15))
 const isInitialLoading = computed(() =>
   bootstrapped.value &&
   syncing.value &&
-  walletsWithBalance.value.length === 0 &&
+  realWalletsWithBalance.value.length === 0 &&
   recentTx.value.length === 0
 )
 
+// ============ HELPERS ============
+
 function catOf(id) { return catStore.categories.find(c => c.id === id) || null }
 function walletOf(id) { return walletStore.wallets.find(w => w.id === id) || null }
-function hasLoan(txId) { return txStore.splits.some(s => s.transaction_id === txId && s.is_loan) }
+function hasLoan(txId) {
+  return txStore.splits.some(s => s.transaction_id === txId && s.is_loan)
+}
 
-function openCreateWallet() { editingWallet.value = null; showWalletForm.value = true }
-function openEditWallet(w) { editingWallet.value = w; showWalletForm.value = true }
-function openDetail(tx) { detailTx.value = tx; showDetail.value = true }
+// ============ NAVIGATION ============
+
+function goWalletDetail(w) {
+  router.push({ name: 'wallet-detail', params: { id: w.id } })
+}
+
+function openCreateWallet() {
+  showWalletForm.value = true
+}
+
+function openDetail(tx) {
+  detailTx.value = tx
+  showDetail.value = true
+}
+
+// ============ LIFECYCLE ============
 
 onMounted(async () => {
   if (auth.user) await seedCategories(auth.user.id)
@@ -93,7 +128,7 @@ onMounted(async () => {
     </header>
 
     <main class="px-5 space-y-5">
-      <!-- Skeleton loading (saat pertama kali buka dengan data kosong) -->
+      <!-- Skeleton loading -->
       <template v-if="isInitialLoading">
         <section class="bg-gradient-to-br from-brand-600 to-brand-700 rounded-2xl p-5 shadow-lg">
           <div class="h-3 w-32 bg-white/20 rounded animate-pulse mb-2" />
@@ -125,50 +160,55 @@ onMounted(async () => {
 
       <!-- Normal content -->
       <template v-else>
+        <!-- Total Balance -->
         <section class="bg-gradient-to-br from-brand-600 to-brand-700 text-white rounded-2xl p-5 shadow-lg">
-          <p class="text-sm opacity-80">Total Saldo Gabungan</p>
+          <p class="text-sm opacity-80">Total Saldo Aset</p>
           <p class="text-3xl font-bold mt-1">{{ formatCurrency(totalBalance) }}</p>
-          <p class="text-xs opacity-70 mt-2">{{ walletsWithBalance.length }} dompet aktif</p>
+          <p class="text-xs opacity-70 mt-2">{{ realWalletsWithBalance.length }} dompet aktif</p>
         </section>
 
+        <!-- Wallets -->
         <section>
           <div class="flex items-center justify-between mb-3">
             <h2 class="font-semibold">Dompet</h2>
             <button
-              class="flex items-center gap-1 text-sm text-brand-600 font-medium"
-              @click="openCreateWallet"
+              class="flex items-center gap-1 text-xs text-slate-500 hover:text-brand-600 font-medium transition"
+              @click="router.push({ name: 'wallets' })"
             >
-              <Plus class="w-4 h-4" /> Tambah
+              Kelola <ArrowRight class="w-3 h-3" />
             </button>
           </div>
 
+          <!-- Empty state: belum punya dompet sama sekali -->
           <div
-            v-if="!walletsWithBalance.length"
+            v-if="!realWalletsWithBalance.length"
             class="bg-white rounded-xl p-8 text-center border border-slate-200"
           >
             <WalletIcon class="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p class="text-sm text-slate-500 mb-4">Belum ada dompet</p>
             <BaseButton size="sm" @click="openCreateWallet">
-              <Plus class="w-4 h-4 inline mr-1" /> Tambah Dompet
+              <Plus class="w-4 h-4 inline mr-1" /> Buat Dompet Pertama
             </BaseButton>
           </div>
 
+          <!-- Wallet list (klik untuk buka detail) -->
           <div v-else class="space-y-2">
-            <div v-for="w in walletsWithBalance" :key="w.id" class="relative">
-              <WalletCard
-                :wallet="{ ...w, initial_balance: w.balance }"
-                @click="openEditWallet(w)"
-              />
-            </div>
+            <WalletCard
+              v-for="w in realWalletsWithBalance"
+              :key="w.id"
+              :wallet="{ ...w, initial_balance: w.balance }"
+              @click="goWalletDetail(w)"
+            />
           </div>
         </section>
 
+        <!-- Recent Transactions -->
         <section>
           <div class="flex items-center justify-between mb-3">
             <h2 class="font-semibold">Riwayat Transaksi</h2>
             <button
               class="flex items-center gap-1 text-xs text-slate-500 hover:text-brand-600 font-medium transition"
-              @click="$router.push({ name: 'transactions' })"
+              @click="router.push({ name: 'transactions' })"
             >
               Lihat Semua <ArrowRight class="w-3 h-3" />
             </button>
@@ -203,12 +243,14 @@ onMounted(async () => {
       @transfer="showTransfer = true"
     />
 
+    <!-- Wallet form modal (hanya untuk empty state create pertama) -->
     <WalletFormModal
       v-model="showWalletForm"
-      :wallet="editingWallet"
+      :wallet="null"
       @saved="walletStore.loadLocal()"
       @deleted="walletStore.loadLocal()"
     />
+
     <IncomeModal v-model="showIncome" @saved="txStore.loadLocal()" />
     <ExpenseModal v-model="showExpense" @saved="txStore.loadLocal()" />
     <TransferModal v-model="showTransfer" @saved="txStore.loadLocal()" />
