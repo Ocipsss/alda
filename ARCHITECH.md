@@ -818,27 +818,3 @@ Tanggal Perubahan
 ```
 
 ---
-
-## ✅ Setelah Buat File
-
-1. Simpan sebagai `ARCHITECTURE.md` di root project.
-2. Cek tidak konflik dengan `README.md` atau `CONCEPT.md` (nama beda, aman).
-3. Commit:
-   ```bash
-   git add ARCHITECTURE.md
-   git commit -m "docs: add comprehensive ARCHITECTURE.md"
-   git push origin main
-```
-
----
-
-📁 Struktur Dokumentasi Lengkap
-
-Setelah ini, project kamu punya 3 dokumen utama di root:
-
-File Isi Untuk Siapa
-README.md Overview singkat, cara install, link ke dokumen lain Developer baru / user GitHub
-CONCEPT.md Visi produk, definisi fitur, roadmap, glosarium Product owner / developer / QA
-ARCHITECTURE.md Detail teknis, layer, sync, deployment Developer / maintainer
-
----
