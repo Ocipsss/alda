@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Wallet as WalletIcon, LogOut, RefreshCw, ScrollText, HandCoins, Tag, ArrowRight, Receipt } from 'lucide-vue-next'
+import { Plus, Wallet as WalletIcon, LogOut, RefreshCw, ScrollText, HandCoins, Tag, ArrowRight, Receipt, BarChart3 } from 'lucide-vue-next'
 import BaseButton from '../components/ui/BaseButton.vue'
 import WalletCard from '../components/wallet/WalletCard.vue'
 import WalletFormModal from '../components/wallet/WalletFormModal.vue'
@@ -85,6 +85,9 @@ onMounted(async () => {
         </button>
         <button class="p-2 rounded-lg hover:bg-slate-100" @click="router.push({ name: 'transactions' })" title="Semua Transaksi">
           <Receipt class="w-5 h-5 text-slate-600" />
+        </button>
+        <button class="p-2 rounded-lg hover:bg-slate-100" @click="router.push({ name: 'reports' })" title="Laporan">
+          <BarChart3 class="w-5 h-5 text-slate-600" />
         </button>
         <button class="p-2 rounded-lg hover:bg-slate-100" @click="syncAll">
           <RefreshCw class="w-5 h-5 text-slate-600" :class="{ 'animate-spin': syncing }" />
