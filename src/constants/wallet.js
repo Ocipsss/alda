@@ -21,3 +21,38 @@ export const DEFAULT_WALLET = {
   color: '#3b82f6',
   icon: 'Wallet'
 }
+
+// ============ TEMPORARY WALLETS (Pihak Luar) ============
+
+/**
+ * Tipe wallet temporer untuk pihak eksternal (utang/piutang).
+ * - debtor   = kita berutang ke pihak ini
+ * - creditor = pihak ini berutang ke kita
+ */
+export const TEMPORARY_TYPE = {
+  DEBTOR: 'debtor',
+  CREDITOR: 'creditor'
+}
+
+/**
+ * Warna default wallet temporer berdasarkan tipe:
+ * - debtor   → oranye (peringatan: kita berutang)
+ * - creditor → hijau (positif: ada yang berutang ke kita)
+ */
+export const TEMPORARY_COLORS = {
+  [TEMPORARY_TYPE.DEBTOR]: '#f97316',
+  [TEMPORARY_TYPE.CREDITOR]: '#10b981'
+}
+
+/**
+ * Template default wallet temporer (belum ada nama).
+ * Nama wajib diisi user saat create.
+ */
+export const DEFAULT_TEMPORARY_WALLET = {
+  name: '',
+  initial_balance: 0,
+  color: '#f97316',
+  icon: 'User',
+  is_temporary: true,
+  temporary_type: TEMPORARY_TYPE.DEBTOR
+}

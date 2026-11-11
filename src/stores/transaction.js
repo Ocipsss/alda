@@ -18,10 +18,14 @@ export const useTransactionStore = defineStore('transaction', () => {
   const debtPayments = ref([])
   const loading = ref(false)
 
+  // ============ COMPUTED ============
+
   const activeTransactions = computed(() =>
     transactions.value
       .filter(t => !t.is_deleted)
-      .sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.updated_at > a.updated_at ? 1 : -1))
+      .sort((a, b) =>
+        b.date > a.date ? 1 : b.date < a.date ? -1 : b.updated_at > a.updated_at ? 1 : -1
+      )
   )
 
   const activeDebts = computed(() =>
@@ -30,8 +34,14 @@ export const useTransactionStore = defineStore('transaction', () => {
       .sort((a, b) => (b.updated_at > a.updated_at ? 1 : -1))
   )
 
-  const utangs = computed(() => activeDebts.value.filter(d => d.type === 'utang'))
-  const piutangs = computed(() => activeDebts.value.filter(d => d.type === 'piutang'))
+  const utangs = computed(() =>
+    activeDebts.value.filter(d => d.type === 'utang')
+  )
+  const piutangs = computed(() =>
+    activeDebts.value.filter(d => d.type === 'piutang')
+  )
+
+  // ============ LOAD LOCAL ============
 
   async function loadLocal() {
     loading.value = true
@@ -51,6 +61,11 @@ export const useTransactionStore = defineStore('transaction', () => {
     }
   }
 
+  // ============ BALANCES ============
+
+  /**
+   * Hitung saldo per wallet. Wrapper ke computeBalances.
+   */
   function balances(wallets) {
     return computeBalances({
       wallets,
@@ -61,7 +76,7 @@ export const useTransactionStore = defineStore('transaction', () => {
     })
   }
 
-  // ---------- TRANSACTIONS ----------
+  // ============ TRANSACTIONS ============
 
   async function createIncome(payload) {
     const auth = useAuthStore()
@@ -87,6 +102,36 @@ export const useTransactionStore = defineStore('transaction', () => {
     return tx
   }
 
+  /**
+   * Income dengan status PINJAM dari pihak luar.
+   * Auto-create wallet temporer + debt.
+   */
+  async function createIncomeWithBorrower(payload) {
+    const auth = useAuthStore()
+    const result = await transactionService.createIncomeWithBorrower(
+      payload,
+      auth.user.id
+    )
+    await loadLocal()
+    syncAll().catch(() => {})
+    return result
+  }
+
+  /**
+   * Expense dengan status PIUTANG ke pihak luar.
+   * Auto-create wallet temporer + debt.
+   */
+  async function createExpenseWithBorrower(payload) {
+    const auth = useAuthStore()
+    const result = await transactionService.createExpenseWithBorrower(
+      payload,
+      auth.user.id
+    )
+    await loadLocal()
+    syncAll().catch(() => {})
+    return result
+  }
+
   async function softDeleteTransaction(id) {
     const deleted = await transactionService.softDelete(id)
     if (!deleted) return
@@ -94,11 +139,29 @@ export const useTransactionStore = defineStore('transaction', () => {
     syncAll().catch(() => {})
   }
 
-  // ---------- DEBTS ----------
+  // ============ DEBTS ============
 
+  /**
+   * Buat debt internal (debtor → creditor).
+   * Dipakai untuk pinjaman antar wallet internal.
+   */
   async function createDebt(payload) {
     const auth = useAuthStore()
     const result = await debtService.create(payload, auth.user.id)
+    await loadLocal()
+    syncAll().catch(() => {})
+    return result
+  }
+
+  /**
+   * Buat debt dengan pihak luar (auto-create wallet temporer).
+   */
+  async function createDebtWithExternalParty(payload) {
+    const auth = useAuthStore()
+    const result = await debtService.createWithExternalParty(
+      payload,
+      auth.user.id
+    )
     await loadLocal()
     syncAll().catch(() => {})
     return result
@@ -118,27 +181,83 @@ export const useTransactionStore = defineStore('transaction', () => {
     syncAll().catch(() => {})
   }
 
+  /**
+   * Ambil payments untuk debt tertentu.
+   */
   function paymentsOf(debtId) {
     return debtPayments.value
       .filter(p => p.debt_id === debtId && !p.is_deleted)
       .sort((a, b) => (b.date > a.date ? 1 : -1))
   }
 
-  // ---------- SYNC ----------
+  // ============ HELPERS ============
+
+  /**
+   * Ambil debts untuk wallet tertentu (via debtor/creditor).
+   */
+  function debtsOfWallet(walletId) {
+    return activeDebts.value.filter(
+      d =>
+        Number(d.remaining) > 0 &&
+        (d.debtor_wallet_id === walletId || d.creditor_wallet_id === walletId)
+    )
+  }
+
+  // ============ SYNC ============
 
   async function syncAll() {
     const auth = useAuthStore()
     if (!auth.user) return
-    await syncMany(['transactions', 'transaction_splits', 'debts', 'debt_payments'])
+    await syncMany([
+      'transactions',
+      'transaction_splits',
+      'debts',
+      'debt_payments'
+    ])
     await loadLocal()
   }
 
+  // ============ RETURN ============
+
   return {
-    transactions, splits, debts, debtPayments, loading,
-    activeTransactions, activeDebts, utangs, piutangs,
-    loadLocal, balances,
-    createIncome, createExpense, createTransfer, softDeleteTransaction,
-    createDebt, payDebt, softDeleteDebt, paymentsOf,
+    // State
+    transactions,
+    splits,
+    debts,
+    debtPayments,
+    loading,
+
+    // Computed
+    activeTransactions,
+    activeDebts,
+    utangs,
+    piutangs,
+
+    // Load
+    loadLocal,
+
+    // Balances
+    balances,
+
+    // Transactions
+    createIncome,
+    createExpense,
+    createTransfer,
+    createIncomeWithBorrower,
+    createExpenseWithBorrower,
+    softDeleteTransaction,
+
+    // Debts
+    createDebt,
+    createDebtWithExternalParty,
+    payDebt,
+    softDeleteDebt,
+    paymentsOf,
+
+    // Helpers
+    debtsOfWallet,
+
+    // Sync
     syncAll
   }
 })
