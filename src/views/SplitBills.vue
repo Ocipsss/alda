@@ -1,9 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { Plus, ArrowLeft, ArrowRight, HandCoins, Split, Filter } from 'lucide-vue-next'
+import { ArrowLeft, HandCoins, Split } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
-import BaseButton from '../components/ui/BaseButton.vue'
-import SplitBillFormModal from '../components/split-bill/SplitBillFormModal.vue'
 import TransactionDetailModal from '../components/transaction/TransactionDetailModal.vue'
 import { useTransactionStore } from '../stores/transaction'
 import { useWalletStore } from '../stores/wallet'
@@ -15,7 +13,6 @@ const txStore = useTransactionStore()
 const walletStore = useWalletStore()
 const catStore = useCategoryStore()
 
-const showForm = ref(false)
 const showDetail = ref(false)
 const detailTx = ref(null)
 const filterMode = ref('all') // 'all' | 'loan' | 'no-loan'
@@ -84,7 +81,7 @@ function openDetail(tx) {
       </button>
       <div>
         <h1 class="text-xl font-bold">Split Payment</h1>
-        <p class="text-xs text-slate-500">Pembayaran multi-wallet</p>
+        <p class="text-xs text-slate-500">Riwayat pembayaran multi-wallet</p>
       </div>
     </header>
 
@@ -106,13 +103,6 @@ function openDetail(tx) {
           <p class="text-[10px] text-amber-600 mt-0.5">Internal debt</p>
         </div>
       </section>
-
-      <!-- Actions -->
-      <div class="flex gap-2">
-        <BaseButton class="flex-1" @click="showForm = true">
-          <Plus class="w-4 h-4 inline mr-1" /> Split Payment Baru
-        </BaseButton>
-      </div>
 
       <!-- Filter -->
       <div class="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl">
@@ -144,7 +134,7 @@ function openDetail(tx) {
         <Split class="w-10 h-10 text-slate-300 mx-auto mb-2" />
         <p class="text-sm text-slate-500 mb-1">Belum ada split payment</p>
         <p class="text-xs text-slate-400">
-          {{ filterMode !== 'all' ? 'Coba ubah filter' : 'Split payment muncul saat transaksi dibayar dari >1 dompet' }}
+          {{ filterMode !== 'all' ? 'Coba ubah filter' : 'Split payment muncul otomatis saat pengeluaran dibayar dari >1 dompet' }}
         </p>
       </div>
 
@@ -192,7 +182,6 @@ function openDetail(tx) {
       </div>
     </main>
 
-    <SplitBillFormModal v-model="showForm" @saved="txStore.loadLocal()" />
     <TransactionDetailModal
       v-model="showDetail"
       :tx="detailTx"

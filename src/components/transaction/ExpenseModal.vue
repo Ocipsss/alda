@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
-import { Plus, Trash2, HandCoins } from 'lucide-vue-next'
+import { HandCoins, AlertCircle, Wallet as WalletIcon, CheckCircle2 } from 'lucide-vue-next'
 import BaseModal from '../ui/BaseModal.vue'
 import BaseButton from '../ui/BaseButton.vue'
 import WalletSelect from '../ui/WalletSelect.vue'
@@ -18,7 +18,6 @@ const walletStore = useWalletStore()
 const catStore = useCategoryStore()
 
 const saving = ref(false)
-const form = ref(emptyForm())
 
 function emptyForm() {
   return {
@@ -26,59 +25,202 @@ function emptyForm() {
     date: formatDateISO(),
     category_id: null,
     note: '',
-    payments: [{ wallet_id: null, amount: '', is_loan: false }]
+    primary: { wallet_id: null, amount: '' },
+    talangan: [] // [{ wallet_id, amount, is_loan }]
   }
 }
 
+const form = ref(emptyForm())
+
+// --- Saldo snapshot ---
+const balances = computed(() => txStore.balances(walletStore.wallets))
+
+function balanceOf(walletId) {
+  if (!walletId) return 0
+  return Number(balances.value[walletId] ?? 0)
+}
+
+function walletOf(walletId) {
+  return walletStore.wallets.find(w => w.id === walletId) || null
+}
+
+// --- Auto-balance: fill primary amount + talangan ---
+function autoBalance() {
+  const total = Number(form.value.amount || 0)
+  const primaryId = form.value.primary.wallet_id
+
+  if (total <= 0 || !primaryId) {
+    form.value.primary.amount = ''
+    form.value.talangan = []
+    return
+  }
+
+  // Primary amount = min(total, saldo primary)
+  const primaryBal = balanceOf(primaryId)
+  const primaryTake = Math.min(total, primaryBal)
+  form.value.primary.amount = primaryTake
+
+  // Cek shortfall
+  let shortfall = total - primaryTake
+  if (shortfall <= 0.01) {
+    form.value.talangan = []
+    return
+  }
+
+  // Auto-fill talangan
+  const usedIds = new Set([primaryId])
+  const talangan = []
+
+  while (shortfall > 0.01) {
+    const nextWallet = walletStore.activeWallets.find(
+      w => !usedIds.has(w.id) && balanceOf(w.id) > 0
+    )
+    if (!nextWallet) break
+
+    const bal = balanceOf(nextWallet.id)
+    const take = Math.min(shortfall, bal)
+
+    talangan.push({
+      wallet_id: nextWallet.id,
+      amount: take,
+      is_loan: true
+    })
+
+    usedIds.add(nextWallet.id)
+    shortfall -= take
+  }
+
+  form.value.talangan = talangan
+}
+
+// Reset saat modal dibuka
 watch(() => props.modelValue, (open) => {
   if (open) {
     form.value = emptyForm()
     if (walletStore.activeWallets.length === 1) {
-      form.value.payments[0].wallet_id = walletStore.activeWallets[0].id
+      form.value.primary.wallet_id = walletStore.activeWallets[0].id
     }
   }
 })
 
-const totalPaid = computed(() =>
-  form.value.payments.reduce((s, p) => s + Number(p.amount || 0), 0)
+// Trigger auto-balance saat amount atau primary wallet berubah
+watch(
+  () => [form.value.amount, form.value.primary.wallet_id],
+  () => autoBalance()
 )
-const remaining = computed(() => Number(form.value.amount || 0) - totalPaid.value)
+
+// --- Computed helpers ---
+const totalTalangan = computed(() =>
+  form.value.talangan.reduce((s, t) => s + Number(t.amount || 0), 0)
+)
+
+const totalAssigned = computed(() =>
+  Number(form.value.primary.amount || 0) + totalTalangan.value
+)
+
+const remaining = computed(() =>
+  Number(form.value.amount || 0) - totalAssigned.value
+)
+
+const isBalanced = computed(() =>
+  Number(form.value.amount) > 0 && Math.abs(remaining.value) < 0.01
+)
+
+const primaryShortfall = computed(() => {
+  if (!form.value.primary.wallet_id) return 0
+  const bal = balanceOf(form.value.primary.wallet_id)
+  const amount = Number(form.value.primary.amount || 0)
+  return Math.max(0, Number(form.value.amount || 0) - bal)
+})
+
+const showTalangan = computed(() =>
+  form.value.talangan.length > 0 && Number(form.value.amount) > 0
+)
+
+const noMoreWallets = computed(() => {
+  if (!form.value.primary.wallet_id) return false
+  const usedIds = new Set([form.value.primary.wallet_id, ...form.value.talangan.map(t => t.wallet_id)])
+  return walletStore.activeWallets.every(w => usedIds.has(w.id))
+})
+
+const balancePreview = computed(() => {
+  const items = []
+  if (form.value.primary.wallet_id && Number(form.value.primary.amount) > 0) {
+    const w = walletOf(form.value.primary.wallet_id)
+    if (w) {
+      items.push({
+        wallet_id: w.id,
+        name: w.name,
+        color: w.color,
+        before: balanceOf(w.id),
+        after: balanceOf(w.id) - Number(form.value.primary.amount)
+      })
+    }
+  }
+  for (const t of form.value.talangan) {
+    if (!t.wallet_id || !Number(t.amount)) continue
+    const w = walletOf(t.wallet_id)
+    if (!w) continue
+    items.push({
+      wallet_id: w.id,
+      name: w.name,
+      color: w.color,
+      before: balanceOf(w.id),
+      after: balanceOf(w.id) - Number(t.amount)
+    })
+  }
+  return items
+})
+
 const canSubmit = computed(() =>
   Number(form.value.amount) > 0 &&
   form.value.category_id &&
-  form.value.payments.every(p => p.wallet_id && Number(p.amount) > 0) &&
-  Math.abs(remaining.value) < 0.01
+  form.value.primary.wallet_id &&
+  Number(form.value.primary.amount) > 0 &&
+  isBalanced.value
 )
 
-function addPayment() {
-  form.value.payments.push({ wallet_id: null, amount: '', is_loan: false })
-}
-function removePayment(i) {
-  if (form.value.payments.length <= 1) return
-  form.value.payments.splice(i, 1)
-}
-
+// --- Submit ---
 async function submit() {
   if (!canSubmit.value) return
   saving.value = true
   try {
+    const payments = [
+      {
+        wallet_id: form.value.primary.wallet_id,
+        amount: Number(form.value.primary.amount),
+        is_loan: false
+      },
+      ...form.value.talangan.map(t => ({
+        wallet_id: t.wallet_id,
+        amount: Number(t.amount),
+        is_loan: t.is_loan
+      }))
+    ]
+
     await txStore.createExpense({
       amount: Number(form.value.amount),
       date: form.value.date,
       category_id: form.value.category_id,
       note: form.value.note,
-      payments: form.value.payments.map(p => ({
-        wallet_id: p.wallet_id,
-        amount: Number(p.amount),
-        is_loan: p.is_loan
-      }))
+      payments
     })
+
     emit('saved')
     emit('update:modelValue', false)
   } finally {
     saving.value = false
   }
 }
+
+// Saran dompet yang belum dipakai (untuk pesan "saldo tidak cukup")
+const unusedWallets = computed(() => {
+  const usedIds = new Set([
+    form.value.primary.wallet_id,
+    ...form.value.talangan.map(t => t.wallet_id)
+  ].filter(Boolean))
+  return walletStore.activeWallets.filter(w => !usedIds.has(w.id))
+})
 </script>
 
 <template>
@@ -89,6 +231,7 @@ async function submit() {
     size="lg"
   >
     <form class="space-y-4" @submit.prevent="submit">
+      <!-- Total -->
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1.5">Total Pengeluaran</label>
         <input
@@ -99,6 +242,7 @@ async function submit() {
         />
       </div>
 
+      <!-- Tanggal -->
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1.5">Tanggal</label>
         <input
@@ -107,81 +251,180 @@ async function submit() {
         />
       </div>
 
+      <!-- Kategori -->
       <CategorySelect
         v-model="form.category_id"
         :categories="catStore.expenseCategories"
         label="Kategori"
       />
 
-      <!-- Payments -->
-      <div class="space-y-3">
-        <div class="flex items-center justify-between">
-          <label class="text-sm font-medium text-slate-700">Sumber Pembayaran</label>
-          <button type="button" @click="addPayment" class="text-xs text-brand-600 font-medium flex items-center gap-1">
-            <Plus class="w-3 h-3" /> Tambah Dompet
-          </button>
+      <!-- Dompet Utama -->
+      <div class="space-y-2">
+        <WalletSelect
+          v-model="form.primary.wallet_id"
+          :wallets="walletStore.activeWallets"
+          label="Dompet Utama"
+        />
+
+        <!-- Info saldo + input nominal (setelah dompet dipilih) -->
+        <div v-if="form.primary.wallet_id" class="bg-slate-50 rounded-xl p-3 space-y-2">
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-500">Saldo tersedia</span>
+            <span class="font-medium text-slate-700">
+              {{ formatCurrency(balanceOf(form.primary.wallet_id)) }}
+            </span>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Nominal dipakai</label>
+            <input
+              v-model.number="form.primary.amount"
+              type="number" inputmode="numeric" min="0"
+              placeholder="0"
+              class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <p
+            v-if="primaryShortfall > 0"
+            class="text-xs text-red-600 flex items-center gap-1"
+          >
+            <AlertCircle class="w-3 h-3" />
+            Saldo kurang {{ formatCurrency(primaryShortfall) }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Talangan (muncul otomatis kalau saldo kurang) -->
+      <div v-if="showTalangan" class="space-y-3">
+        <div class="flex items-center gap-2 text-sm font-medium text-amber-700">
+          <HandCoins class="w-4 h-4" />
+          Dompet Talangan
         </div>
 
-        <div v-for="(p, i) in form.payments" :key="i" class="bg-slate-50 rounded-xl p-3 space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-slate-500">
-              {{ i === 0 ? 'Dompet Utama' : `Dompet Tambahan ${i}` }}
-            </span>
-            <button
-              v-if="form.payments.length > 1"
-              type="button"
-              class="text-red-500 p-1"
-              @click="removePayment(i)"
-            >
-              <Trash2 class="w-4 h-4" />
-            </button>
+        <div
+          v-for="(t, i) in form.talangan"
+          :key="i"
+          class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2"
+        >
+          <div class="text-xs text-amber-800 font-medium">
+            Talangan {{ i + 1 }}
           </div>
 
           <WalletSelect
-            v-model="p.wallet_id"
+            v-model="t.wallet_id"
             :wallets="walletStore.activeWallets"
-            :exclude="form.payments.filter((_, idx) => idx !== i).map(x => x.wallet_id).filter(Boolean)"
+            :exclude="[
+              form.primary.wallet_id,
+              ...form.talangan.filter((_, idx) => idx !== i).map(x => x.wallet_id)
+            ].filter(Boolean)"
             label=""
           />
 
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-500">Saldo tersedia</span>
+            <span class="font-medium text-slate-700">
+              {{ formatCurrency(balanceOf(t.wallet_id)) }}
+            </span>
+          </div>
+
           <input
-            v-model.number="p.amount"
-            type="number" inputmode="numeric" min="1" placeholder="Nominal dari dompet ini"
-            class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            v-model.number="t.amount"
+            type="number" inputmode="numeric" min="1"
+            placeholder="Nominal talangan"
+            class="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
 
-          <label v-if="i > 0" class="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
-            <input v-model="p.is_loan" type="checkbox" class="mt-0.5 accent-brand-600" />
-            <span class="flex-1">
-              <span class="flex items-center gap-1 font-medium">
-                <HandCoins class="w-3 h-3" /> Tandai sebagai Pinjaman
-              </span>
-              <span class="block text-slate-500 mt-0.5">
-                Dompet ini berutang ke dompet utama. Otomatis catat utang internal.
-              </span>
-            </span>
-          </label>
+          <!-- Toggle pinjam -->
+          <div class="flex items-center justify-between pt-1">
+            <div>
+              <p class="text-xs font-medium text-slate-700">Tandai sebagai Pinjaman</p>
+              <p class="text-[10px] text-slate-500 mt-0.5">
+                {{ t.is_loan ? 'Dompet ini berutang ke dompet utama' : 'Beban dibagi biasa' }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="t.is_loan = !t.is_loan"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition shrink-0',
+                t.is_loan ? 'bg-amber-500' : 'bg-slate-300'
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition',
+                  t.is_loan ? 'translate-x-6' : 'translate-x-1'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+
+        <!-- Info: dompet habis -->
+        <div
+          v-if="remaining > 0.01 && noMoreWallets"
+          class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700"
+        >
+          <p class="font-medium mb-1 flex items-center gap-1">
+            <AlertCircle class="w-3 h-3" />
+            Saldo tidak cukup
+          </p>
+          <p>Semua dompet sudah terpakai, masih kurang {{ formatCurrency(remaining) }}</p>
         </div>
       </div>
 
       <!-- Summary -->
       <div class="bg-slate-100 rounded-xl p-3 text-sm space-y-1">
         <div class="flex justify-between">
-          <span class="text-slate-600">Total tagihan</span>
+          <span class="text-slate-600">Total belanja</span>
           <span class="font-medium">{{ formatCurrency(form.amount) }}</span>
         </div>
         <div class="flex justify-between">
           <span class="text-slate-600">Dialokasikan</span>
-          <span class="font-medium">{{ formatCurrency(totalPaid) }}</span>
+          <span class="font-medium">{{ formatCurrency(totalAssigned) }}</span>
         </div>
         <div class="flex justify-between">
           <span class="text-slate-600">Sisa</span>
-          <span :class="Math.abs(remaining) < 0.01 ? 'text-green-600' : 'text-red-600'" class="font-semibold">
+          <span
+            :class="isBalanced ? 'text-green-600' : 'text-red-600'"
+            class="font-semibold flex items-center gap-1"
+          >
+            <CheckCircle2 v-if="isBalanced" class="w-3 h-3" />
             {{ formatCurrency(remaining) }}
           </span>
         </div>
       </div>
 
+      <!-- Preview saldo before/after -->
+      <div
+        v-if="balancePreview.length > 0"
+        class="bg-white border border-slate-200 rounded-xl p-3 space-y-2"
+      >
+        <p class="text-xs font-medium text-slate-500 uppercase flex items-center gap-1">
+          <WalletIcon class="w-3 h-3" /> Preview Saldo
+        </p>
+        <div
+          v-for="item in balancePreview"
+          :key="item.wallet_id"
+          class="flex items-center justify-between text-sm"
+        >
+          <span class="text-slate-700 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full" :style="{ background: item.color }" />
+            {{ item.name }}
+          </span>
+          <span class="text-xs text-slate-500">
+            {{ formatCurrency(item.before) }}
+            <span class="mx-1">→</span>
+            <span
+              class="font-medium"
+              :class="item.after < 0 ? 'text-red-600' : 'text-slate-900'"
+            >
+              {{ formatCurrency(item.after) }}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Catatan -->
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1.5">Catatan (opsional)</label>
         <textarea
