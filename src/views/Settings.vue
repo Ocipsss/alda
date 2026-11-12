@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   HandCoins,
@@ -7,13 +8,19 @@ import {
   BarChart3,
   LogOut,
   Info,
-  ChevronRight
+  ChevronRight,
+  RefreshCw,
+  Trash2
 } from 'lucide-vue-next'
+import ResetDataModal from '../components/settings/ResetDataModal.vue'
 import { useAuthStore } from '../stores/auth'
 import { APP_NAME } from '../constants/app'
 
 const router = useRouter()
 const auth = useAuthStore()
+
+const showResetModal = ref(false)
+const resetMode = ref('transactions') // 'transactions' | 'all'
 
 async function handleLogout() {
   if (!confirm('Keluar dari akun?')) return
@@ -23,6 +30,15 @@ async function handleLogout() {
 
 function go(name) {
   router.push({ name })
+}
+
+function openReset(mode) {
+  resetMode.value = mode
+  showResetModal.value = true
+}
+
+function onResetConfirmed() {
+  // Toast ditangani oleh modal
 }
 </script>
 
@@ -104,6 +120,40 @@ function go(name) {
         </div>
       </section>
 
+      <!-- Data -->
+      <section>
+        <h2 class="text-xs font-semibold text-slate-500 uppercase mb-2 px-1">Data</h2>
+        <div class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+          <button
+            @click="openReset('transactions')"
+            class="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition text-left"
+          >
+            <div class="w-9 h-9 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
+              <RefreshCw class="w-5 h-5" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="font-medium text-sm">Reset Transaksi</p>
+              <p class="text-xs text-slate-500">Hapus transaksi & pinjaman tanpa hapus dompet</p>
+            </div>
+            <ChevronRight class="w-4 h-4 text-slate-400 shrink-0" />
+          </button>
+
+          <button
+            @click="openReset('all')"
+            class="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition text-left"
+          >
+            <div class="w-9 h-9 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">
+              <Trash2 class="w-5 h-5" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="font-medium text-sm text-red-600">Reset Semua Data</p>
+              <p class="text-xs text-slate-500">Hapus semua data. Mulai fresh.</p>
+            </div>
+            <ChevronRight class="w-4 h-4 text-slate-400 shrink-0" />
+          </button>
+        </div>
+      </section>
+
       <!-- Akun -->
       <section>
         <h2 class="text-xs font-semibold text-slate-500 uppercase mb-2 px-1">Akun</h2>
@@ -137,5 +187,12 @@ function go(name) {
         </div>
       </section>
     </main>
+
+    <!-- Reset Data Modal -->
+    <ResetDataModal
+      v-model="showResetModal"
+      :mode="resetMode"
+      @confirmed="onResetConfirmed"
+    />
   </div>
 </template>
