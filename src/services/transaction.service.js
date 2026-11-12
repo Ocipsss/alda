@@ -20,9 +20,6 @@ export const transactionService = {
 
   // ============ INCOME ============
 
-  /**
-   * Catat pemasukan biasa (tanpa pihak luar).
-   */
   async createIncome({ amount, date, wallet_id, category_id, note }, userId) {
     const now = new Date().toISOString()
     const tx = {
@@ -48,9 +45,17 @@ export const transactionService = {
 
   /**
    * Buat expense dengan dukungan split ke banyak wallet.
-   * Kalau ada payment dengan is_loan=true (dan bukan wallet utama),
-   * otomatis dibuatkan debt internal dengan skema baru
-   * (debtor_wallet_id = wallet talangan, creditor_wallet_id = wallet utama).
+   *
+   * Konvensi split loan:
+   * - Wallet primary = wallet utama yang dipakai duluan
+   * - Wallet talangan (is_loan=true) = wallet tambahan yang dipinjam
+   * - PRIMARY yang meminjam dari talangan (karena primary butuh uang tambahan)
+   * - Debt: debtor = primary (peminjam), creditor = talangan (pemberi pinjam)
+   *
+   * Contoh: expense 70k, primary D2 (saldo 50k), talangan D1 (20k, loan)
+   * - D2 -= 50k, D1 -= 20k
+   * - Debt: debtor = D2, creditor = D1, principal = 20k
+   * - Artinya: D2 berutang 20k ke D1
    *
    * @param {Object} params
    * @param {Array<{wallet_id, amount, is_loan}>} params.payments
@@ -95,20 +100,21 @@ export const transactionService = {
       }
 
       if (p.is_loan && p.wallet_id !== primary.wallet_id) {
-        // Split loan: wallet talangan berutang ke wallet utama
-        // debtor = talangan (peminjam), creditor = primary (pemberi pinjam)
+        // ✅ FIX: PRIMARY yang berutang ke TALANGAN
+        // primary = wallet utama (peminjam, karena butuh uang tambahan)
+        // talangan = wallet tambahan (pemberi pinjam)
         const debtId = uid()
         debtRows.push({
           id: debtId,
           user_id: userId,
           type: DEBT_TYPE.UTANG,
           source: 'internal',
-          party: primary.wallet_id,
+          party: p.wallet_id,                        // talangan = pihak yang dipinjami
           principal: Number(p.amount),
           remaining: Number(p.amount),
-          debtor_wallet_id: p.wallet_id,
-          creditor_wallet_id: primary.wallet_id,
-          counterpart_wallet_id: primary.wallet_id,
+          debtor_wallet_id: primary.wallet_id,        // ← PRIMARY (peminjam)
+          creditor_wallet_id: p.wallet_id,            // ← TALANGAN (pemberi)
+          counterpart_wallet_id: p.wallet_id,
           note: 'Pembayaran patungan: ' + (note || ''),
           due_date: null,
           is_deleted: false,
@@ -160,27 +166,8 @@ export const transactionService = {
     return tx
   },
 
-  // ============ INCOME / EXPENSE WITH BORROWER (Pihak Luar) ============
+  // ============ INCOME WITH BORROWER (Pihak Luar) ============
 
-  /**
-   * Catat pemasukan dengan status PINJAM dari pihak luar.
-   * Uang masuk ke wallet utama, tapi statusnya utang ke pihak luar.
-   *
-   * Contoh: pinjam Rp 100.000 dari Andi, uang masuk ke Cash.
-   * - Income Rp 100.000 ke Cash
-   * - Debt: debtor = Cash (kita berutang), creditor = wallet temporer Andi
-   * - Wallet temporer Andi (type: 'creditor') dibuat otomatis
-   *
-   * @param {Object} p
-   * @param {number} p.amount
-   * @param {string} p.date
-   * @param {string} p.wallet_id       - wallet penerima uang
-   * @param {string} p.category_id
-   * @param {string} p.note
-   * @param {string} p.party_name      - nama pihak luar (e.g. "Andi")
-   * @param {string} [p.due_date]
-   * @param {string} p.userId
-   */
   async createIncomeWithBorrower(
     { amount, date, wallet_id, category_id, note, party_name, due_date = null },
     userId
@@ -189,15 +176,13 @@ export const transactionService = {
     const txId = uid()
     const debtId = uid()
 
-    // 1. Buat wallet temporer untuk pihak luar (atau reuse yang ada)
     const { walletService } = await import('./wallet.service')
     const tempWallet = await walletService.findOrCreateTemporary({
       name: party_name,
-      type: 'creditor', // pihak luar meminjami kita
+      type: 'creditor',
       userId
     })
 
-    // 2. Buat transaksi income
     const tx = {
       id: txId,
       user_id: userId,
@@ -214,9 +199,8 @@ export const transactionService = {
       _pending: true
     }
 
-    // 3. Buat debt internal
-    // debtor = wallet utama (kita yang harus bayar)
-    // creditor = wallet temporer (Andi yang meminjami)
+    // Kita pinjam dari Andi → kita (wallet_id) berutang ke Andi (tempWallet)
+    // debtor = wallet kita (Cash), creditor = Andi temporer
     const debt = {
       id: debtId,
       user_id: userId,
@@ -249,25 +233,8 @@ export const transactionService = {
     return { tx, debt, tempWallet }
   },
 
-  /**
-   * Catat pengeluaran dengan status PIUTANG ke pihak luar.
-   * Uang keluar dari wallet utama, tapi statusnya piutang ke pihak luar.
-   *
-   * Contoh: pinjamkan Rp 100.000 ke Andi, uang keluar dari Cash.
-   * - Expense Rp 100.000 dari Cash
-   * - Debt: debtor = wallet temporer Andi, creditor = Cash
-   * - Wallet temporer Andi (type: 'debtor') dibuat otomatis
-   *
-   * @param {Object} p
-   * @param {number} p.amount
-   * @param {string} p.date
-   * @param {string} p.wallet_id       - wallet sumber dana
-   * @param {string} p.category_id
-   * @param {string} p.note
-   * @param {string} p.party_name      - nama pihak luar (e.g. "Andi")
-   * @param {string} [p.due_date]
-   * @param {string} p.userId
-   */
+  // ============ EXPENSE WITH BORROWER (Pihak Luar) ============
+
   async createExpenseWithBorrower(
     { amount, date, wallet_id, category_id, note, party_name, due_date = null },
     userId
@@ -276,15 +243,13 @@ export const transactionService = {
     const txId = uid()
     const debtId = uid()
 
-    // 1. Buat wallet temporer untuk pihak luar
     const { walletService } = await import('./wallet.service')
     const tempWallet = await walletService.findOrCreateTemporary({
       name: party_name,
-      type: 'debtor', // pihak luar berutang ke kita
+      type: 'debtor',
       userId
     })
 
-    // 2. Buat transaksi expense
     const tx = {
       id: txId,
       user_id: userId,
@@ -301,9 +266,8 @@ export const transactionService = {
       _pending: true
     }
 
-    // 3. Buat debt internal
-    // debtor = wallet temporer (Andi yang berutang)
-    // creditor = wallet utama (kita yang meminjami)
+    // Kita pinjamkan ke Andi → Andi (tempWallet) berutang ke kita (wallet_id)
+    // debtor = Andi temporer, creditor = wallet kita (Cash)
     const debt = {
       id: debtId,
       user_id: userId,
@@ -375,7 +339,6 @@ export const transactionService = {
       }
     )
 
-    // Cleanup wallet temporer yang mungkin orphan setelah debt dihapus
     const { debtService } = await import('./debt.service')
     const relatedDebts = await db.debts
       .filter(d => d.is_deleted && d.updated_at === now)

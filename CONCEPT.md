@@ -53,6 +53,7 @@ Alda mengasumsikan user punya **banyak "kantong uang"** yang perlu dipisah tapi 
 - **CRUD dompet**: nama, saldo awal, warna, ikon
 - **Transfer antar dompet**: pindah dana tanpa mengubah total kekayaan
 - **Soft delete**: hapus dompet tapi histori tetap aman
+- **Klik wallet** → buka halaman detail wallet (`/wallets/:id`) — menampilkan saldo, utang/piutang, transaksi terbaru, dan menu edit/hapus
 
 ### 3.3 Transaksi
 - **Income** (pemasukan): nominal, tanggal, dompet, kategori, catatan
@@ -60,20 +61,52 @@ Alda mengasumsikan user punya **banyak "kantong uang"** yang perlu dipisah tapi 
 - **Transfer**: pindah dana antar dompet
 
 ### 3.4 Kategori
-- **Kategori default otomatis**: 13 kategori (5 income, 8 expense) ter-seed saat user baru pertama login
+- **Kategori default otomatis**: **8 kategori** (3 income, 5 expense) ter-seed saat user baru pertama login:
+  - **Income (3):** Gaji, Bonus, Lainnya
+  - **Expense (5):** Makanan, Transportasi, Belanja, Tagihan, Lainnya
+- User lama yang sudah punya 13 kategori default **tidak dimigrate** — tetap pakai kategori mereka sendiri
 - **UI CRUD** di halaman `/categories`: tambah/edit/hapus kategori dengan icon picker
 - Kategori punya: nama, jenis (income/expense), ikon (dari Lucide)
 - **Kategori selector** di form transaksi menggunakan modal picker (bukan grid terbuka di form) — konsisten dengan field tanggal/waktu
 
-### 3.5 Utang & Piutang
-- **Eksternal**: catat utang ke pihak luar (Budi, Koperasi) atau piutang ke orang lain
-- **Internal**: catat pinjaman antar dompet sendiri (kas warung pinjam ke tabungan)
-- **Pelunasan**: cicilan atau lunas sekaligus
+### 3.5 Utang & Piutang (Model Wallet Temporer)
 
-### 3.6 Sinkronisasi & Offline
-- Semua operasi tersimpan lokal dulu (Dexie/IndexedDB)
-- Sync ke Supabase cloud saat online
-- Multi-device: input di HP → muncul di tablet dalam hitungan detik
+Alda menggunakan **model wallet temporer** untuk pihak luar — semua debt (utang/piutang) diperlakukan sebagai internal, tapi pihak luar di-representasikan sebagai wallet sementara.
+
+**Konsep:**
+- Saat user catat **pinjaman dari Andi Rp 100.000** → uang masuk ke Cash
+  - Wallet baru **"Andi"** dibuat otomatis (saldo 0, tipe `creditor` = pihak yang meminjami kita)
+  - Debt terbentuk: **Cash berutang ke Andi** Rp 100.000
+- Saat user catat **pinjaman ke Budi Rp 50.000** → uang keluar dari Cash
+  - Wallet baru **"Budi"** dibuat otomatis (saldo 0, tipe `debtor` = pihak yang berutang ke kita)
+  - Debt terbentuk: **Budi berutang ke Cash** Rp 50.000
+
+**Karakteristik:**
+- Wallet temporer **tidak muncul di picker transaksi** (bukan sumber dana riil)
+- Wallet temporer **tidak mempengaruhi Total Saldo Aset** di Dashboard (saldo 0)
+- Wallet temporer muncul di section **"Pihak Luar"** di halaman `/wallets`
+- Wallet temporer **auto-hilang** saat debt-nya lunas (cleanup otomatis)
+- User bisa akses detail wallet temporer → lihat utang/piutang + tap untuk pelunasan
+
+**Jenis utang/piutang:**
+- **Internal (antar wallet real)**: pinjam antar dompet sendiri (kas warung pinjam ke tabungan)
+- **Eksternal (via wallet temporer)**: pinjam dari/ke pihak luar (Budi, Koperasi)
+- **Pelunasan**: cicilan atau lunas sekaligus. Auto-update sisa + cleanup wallet temporer kalau lunas
+
+### 3.6 Navigasi & Settings
+
+**Bottom Navigation (4 tab):**
+- **Beranda** — ringkasan saldo, list dompet, riwayat transaksi terbaru
+- **Transaksi** — riwayat lengkap dengan filter & export CSV
+- **Dompet** — list semua dompet (Dompet Saya + Pihak Luar) + tambah dompet
+- **Setting** — menu pengaturan, termasuk Pinjaman, Kategori, Laporan, Split Payment, Data (reset), dan Logout
+
+**Halaman Settings berisi:**
+- **Keuangan:** Pinjaman, Kategori
+- **Riwayat & Analitik:** Laporan, Split Payment
+- **Data:** Reset Transaksi, Reset Semua Data
+- **Akun:** Keluar
+- **Tentang:** Info aplikasi
 
 ### 3.7 Filter, Export & Laporan
 
@@ -117,6 +150,31 @@ Alda mengasumsikan user punya **banyak "kantong uang"** yang perlu dipisah tapi 
 
 **Karakteristik chart:** Pure CSS bar chart — **zero dependency**, 0KB bundle tambahan, jalan offline sempurna.
 
+### 3.8 Reset Data
+
+**Halaman Settings → section "Data"** menyediakan 2 tombol untuk reset:
+
+**1. Reset Transaksi:**
+- Soft delete semua transaksi, splits, utang/piutang, riwayat pelunasan
+- Wallet temporer yang orphan (tidak ada debt aktif) ikut dihapus
+- **Dompet & kategori dipertahankan**
+- Saldo dompet kembali ke **saldo awal** (initial_balance)
+- Cocok untuk: mulai fresh tanpa kehilangan setup dompet & kategori
+
+**2. Reset Semua Data:**
+- Soft delete semua transaksi + wallet + kategori
+- Re-seed **8 kategori default** baru
+- User mulai fresh seperti user baru (belum ada dompet)
+- Cocok untuk: reset total (tester, demo, user yang ingin mulai dari nol)
+
+**Safety:**
+- Konfirmasi typed text:
+  - Reset Transaksi → ketik **"HAPUS"**
+  - Reset Semua → ketik **"RESET SEMUA"**
+- Tombol submit disabled sampai text tepat
+- Preview data yang akan dihapus (jumlah transaksi, utang, dompet, kategori)
+- Toast sukses setelah reset
+
 ---
 
 ## 4. FITUR "SPLIT BILL" — DEFINISI FINAL
@@ -150,15 +208,17 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 - Tabungan: ada **Rp 400.000**
 
 **Aksi:**
-- Cash dipakai Rp 130.000
-- Tabungan dipakai Rp 170.000
-- Status Tabungan: **PINJAM** ke Cash
+- Cash dipakai Rp 130.000 (dompet utama)
+- Tabungan dipakai Rp 170.000 (talangan, **pinjam**)
+- **Cash berutang Rp 170.000 ke Tabungan** (karena Cash yang butuh uang tambahan)
 
 **Efek:**
 - Cash −130k, Tabungan −170k
-- **Auto-generate utang internal**: Tabungan berutang Rp 170.000 ke Cash
+- **Auto-generate utang internal**: Cash berutang Rp 170.000 ke Tabungan
 - Muncul di halaman `/debts` sebagai utang internal
-- Kalau nanti Tabungan bayar utang → muncul di pelunasan
+- Kalau nanti Cash bayar utang → saldo Cash turun, Tabungan naik
+- Di detail wallet Cash → **"Berutang ke Tabungan Rp 170.000"**
+- Di detail wallet Tabungan → **"Dipinjami oleh Cash Rp 170.000"**
 
 #### Skenario B — Split Tanpa Pinjaman
 
@@ -183,8 +243,8 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 |---|---|---|
 | Multi-wallet expense | `ExpenseModal.vue` | Basis logic |
 | Flag `is_loan` per split | `ExpenseModal.vue` | Flag pinjaman |
-| Auto-create internal debt | `transactionService.createExpense` | Kalau `is_loan: true` |
-| Lihat & lunasi utang internal | `/debts` | Utang yang terbentuk |
+| Auto-create internal debt | `transactionService.createExpense` | Kalau `is_loan: true` (primary = debtor, talangan = creditor) |
+| Lihat & lunasi utang internal | `/debts` + `/wallets/:id` | Utang yang terbentuk |
 
 **Artinya:**
 - Split Bill **bukan fitur DB baru**
@@ -216,6 +276,7 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 - Talangan bisa **diedit manual** (dompet maupun nominal) setelah auto-suggest
 - Kalau user ubah total belanja atau dompet utama → talangan **auto-recalculate**
 - Kalau semua dompet sudah dipakai tapi masih kurang → muncul warning merah + submit disabled
+- **Checkbox "Catat sebagai piutang ke pihak luar"** — tersedia kalau **tidak ada split payment aktif**. Kalau dicentang, expense dicatat sebagai piutang ke pihak luar (auto-create wallet temporer).
 
 **Halaman `/split-bills` (read-only history):**
 - Daftar transaksi yang dibayar **>1 wallet**
@@ -223,7 +284,7 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 - Summary: Total Split & Total Pinjaman
 - Tap transaksi → buka detail (reuse `TransactionDetailModal`)
 - **Tidak ada tombol "Split Baru"** — karena split dibuat dari `+ Pengeluaran` biasa
-- Akses via link "Split · Lihat Semua →" di section Riwayat Transaksi Dashboard
+- Akses via link di Settings
 
 ---
 
@@ -235,15 +296,17 @@ Kalau butuh fitur seperti di atas, itu masuk **Utang Piutang Eksternal** (fitur 
 | 2 | Auth + CRUD Dompet + Icon/Color Picker | ✅ Selesai |
 | 3 | Transaksi (Income, Expense multi-wallet, Transfer) + Riwayat | ✅ Selesai |
 | 3.5 | CRUD Kategori UI (`/categories`) | ✅ Selesai |
-| 4 | Utang/Piutang Eksternal & Internal + Pelunasan | ✅ Selesai |
+| 4 | Utang/Piutang + Pelunasan | ✅ Selesai |
 | Refactor | SoC (constants, lib, repos, services, stores, composables) | ✅ Selesai |
-| 5 | Split Bill — **terintegrasi di ExpenseModal** (UX-enhanced, bukan modal terpisah) | ✅ Selesai |
+| 5 | Split Bill — terintegrasi di ExpenseModal (UX-enhanced) | ✅ Selesai |
 | 6 | Filter Lanjutan + Export CSV + Laporan Bulanan | ✅ Selesai |
+| 6.5 | **Wallet Temporer Model + Reset Data + Bottom Nav** | ✅ Selesai |
 | 7 (rencana) | Onboarding & tutorial interaktif | ⬜ Belum |
 
 > **Catatan revisi:**
-> - Fase 5 awalnya direncanakan sebagai modal terpisah (`SplitBillFormModal`), tapi setelah UX review, diputuskan untuk **melebur ke `ExpenseModal`** sebagai fitur otomatis saat saldo kurang. Modal `SplitBillFormModal` dihapus. Halaman `/split-bills` tetap ada sebagai **riwayat read-only**.
-> - Fase 6 mencakup 3 sub-fitur: Filter Lanjutan (halaman `/transactions`), Export CSV (tombol Download di halaman Transaksi), dan Laporan Bulanan (halaman `/reports` dengan 3 tab).
+> - Fase 5 awalnya direncanakan sebagai modal terpisah (`SplitBillFormModal`), tapi setelah UX review, diputuskan untuk **melebur ke `ExpenseModal`** sebagai fitur otomatis saat saldo kurang.
+> - Fase 6 mencakup 3 sub-fitur: Filter Lanjutan, Export CSV, Laporan Bulanan.
+> - Fase 6.5 mencakup refactor besar: model wallet temporer untuk pihak luar (utang/piutang terintegrasi), Reset Data (transaksi & semua), Bottom Navigation hybrid (4 tab), dan settings page lengkap.
 
 ---
 
@@ -282,6 +345,7 @@ User Action → Store → Dexie (instan) → [background] Sync Engine → Supaba
 - Multi-currency
 - Budget & alert
 - Chart library (Chart.js) untuk donut/line chart
+- Onboarding & tutorial interaktif
 
 ---
 
@@ -295,12 +359,18 @@ User Action → Store → Dexie (instan) → [background] Sync Engine → Supaba
 | **Split Bill** | **= Split Payment** (lihat Bagian 4) |
 | **Dompet Utama** | Dompet yang dipakai duluan |
 | **Dompet Talangan** | Dompet yang menutup kekurangan (muncul otomatis saat saldo kurang) |
-| **Pinjaman Internal** | Utang antar dompet milik user sendiri |
-| **Utang Eksternal** | Utang ke pihak luar (orang / koperasi) |
-| **Piutang Eksternal** | Uang orang lain yang ada di kita (harus ditagih) |
+| **Wallet Temporer** | Wallet sementara untuk pihak luar (Andi, Budi) — saldo 0, auto-hilang saat debt lunas |
+| **Debtor** | Pihak yang berutang (peminjam) |
+| **Creditor** | Pihak yang meminjami (pemberi pinjam) |
+| **Pinjaman Internal** | Utang antar dompet real milik user sendiri |
+| **Utang Eksternal** | Utang ke pihak luar (orang / koperasi) — via wallet temporer |
+| **Piutang Eksternal** | Uang orang lain yang ada di kita — via wallet temporer |
 | **Soft Delete** | Hapus data tapi ditandai `is_deleted: true` (untuk sync) |
 | **Last-Write-Wins** | Aturan konflik sync: yang terakhir `updated_at` menang |
-| **Seed Default** | Isi otomatis (misal 13 kategori) saat user baru login |
+| **Seed Default** | Isi otomatis (8 kategori) saat user baru login |
+| **Reset Transaksi** | Hapus transaksi & pinjaman, wallet & kategori tetap |
+| **Reset Semua Data** | Hapus semua data + seed ulang 8 kategori default |
+| **Bottom Navigation** | Navigasi bawah 4 tab: Beranda, Transaksi, Dompet, Setting |
 | **Bar Chart CSS** | Grafik batang horizontal dengan div + CSS (zero dependency) |
 
 ---
@@ -317,10 +387,11 @@ User Action → Store → Dexie (instan) → [background] Sync Engine → Supaba
 
 | Tanggal | Perubahan |
 |---|---|
-| 2026-11-11 | Dokumen dibuat. Mendefinisikan Split Bill secara final (split payment multi-wallet, BUKAN bagi tagihan ke teman). |
+| 2026-11-11 | Dokumen dibuat. Mendefinisikan Split Bill secara final. |
 | 2026-11-11 | Revisi 1: Tambah 3.4 (Kategori), sisipkan Fase 3.5 di roadmap. |
-| 2026-11-11 | Revisi 2: Fase 3.5 & 5 selesai. UX Split Bill berubah — tidak lagi modal terpisah, tapi fitur otomatis di `ExpenseModal`. `SplitBillFormModal` dihapus. Halaman `/split-bills` jadi riwayat read-only. Kategori selector jadi modal picker. Update 4.5 (alur UX baru), Section 5 (status roadmap), Section 8 (glosarium). |
-| 2026-11-11 | **Revisi 3:** Fase 6 selesai. Tambah Section 3.7 (Filter, Export & Laporan). Update roadmap (Fase 6 ✅, Fase 7 rencana onboarding). Update Section 7 (non-goals: chart library sebagai future). Tambah glosarium "Bar Chart CSS". |
+| 2026-11-11 | Revisi 2: Fase 3.5 & 5 selesai. UX Split Bill berubah — jadi fitur otomatis di `ExpenseModal`. Halaman `/split-bills` jadi riwayat read-only. |
+| 2026-11-11 | Revisi 3: Fase 6 selesai. Tambah 3.7 (Filter, Export & Laporan). Tambah glosarium "Bar Chart CSS". |
+| 2026-11-12 | **Revisi 4:** Fase 6.5 selesai. Refactor besar: (1) **Wallet Temporer** untuk pihak luar — semua debt internal, pihak luar sebagai wallet sementara; (2) **Reset Data** (2 mode: reset transaksi & reset semua); (3) **Bottom Navigation hybrid** (Beranda/Transaksi/Dompet/Setting), Laporan pindah ke Settings; (4) **Kategori default 8** (bukan 13); (5) **Fix arah debt split loan** (primary = debtor, talangan = creditor). Tambah section 3.6 (Navigasi & Settings), 3.8 (Reset Data). Update 3.2, 3.4, 3.5, 4.5. Update roadmap (tambah Fase 6.5). Update glosarium. |
 
 ---
 

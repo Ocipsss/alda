@@ -1,4 +1,16 @@
-📄 ARCHITECTURE.md
+---
+
+📄 ARCHITECTURE.md — Full Update
+
+Berikut full code hasil update. Perubahan besar:
+
+· Struktur folder — tambah Wallets, WalletDetail, WalletDebtInfo, ResetDataModal, data-reset.service, wallet-temporary, wallet-debt, settings/, remove split-bill/
+· Constants — 8 kategori default (bukan 13) + temporary wallet constants
+· Models — explain wallet-temporary model, debtor/creditor
+· Balance — update rumus (debt creation tidak ubah saldo)
+· Auth — auth hardening
+· Testing — tambah reset & temporary wallet tests
+· Section baru — 7.8 Wallet Temporary Model, 13.11 Reset Data
 
 ```markdown
 # Alda — Architecture & Technical Documentation
@@ -48,7 +60,7 @@ Alda adalah PWA (Progressive Web App) **offline-first** yang menggabungkan:
 ┌──────────────────────────────────────────────────────────┐
 │                    DEXIE.JS (IndexedDB)                   │
 │  (transactions, splits, debts, debts_payments, wallets,  │
-│   categories, split_bills, split_bill_members, sync_meta)│
+│   categories, sync_meta)                                  │
 └───────────────────────────┬──────────────────────────────┘
                             │
                             ▼
@@ -70,7 +82,7 @@ Alda adalah PWA (Progressive Web App) **offline-first** yang menggabungkan:
 
 ```text
 src/
-├── App.vue                        # Root — panggil useAutoSync()
+├── App.vue                        # Root — panggil useAutoSync() + BottomNav conditional
 ├── main.js                        # Bootstrap — guard sebelum router + registerSW
 ├── style.css                      # Tailwind v4 + tema
 │
@@ -82,40 +94,44 @@ src/
 │   │   ├── BaseButton.vue         # Button variants
 │   │   ├── ColorPicker.vue        # Palet warna dompet
 │   │   ├── IconPicker.vue         # Picker ikon Lucide
-│   │   ├── WalletSelect.vue       # Select dompet
+│   │   ├── WalletSelect.vue       # Select dompet (filter temporer)
 │   │   ├── CategorySelect.vue     # Kategori picker (button + modal)
 │   │   └── CategoryPickerModal.vue # Modal grid kategori
 │   ├── layout/
+│   │   ├── BottomNav.vue          # Bottom navigation (Beranda/Transaksi/Dompet/Setting)
 │   │   └── FabMenu.vue            # FAB speed-dial
 │   ├── wallet/                    # Wallet-related
 │   │   ├── WalletCard.vue
-│   │   └── WalletFormModal.vue
+│   │   ├── WalletFormModal.vue
+│   │   └── WalletDebtInfo.vue     # Section utang/piutang per wallet
 │   ├── category/                  # Category-related
 │   │   ├── CategoryItem.vue
 │   │   └── CategoryFormModal.vue
 │   ├── transaction/               # Transaction-related
-│   │   ├── IncomeModal.vue
-│   │   ├── ExpenseModal.vue       # Multi-wallet + auto-talangan + loan flag
+│   │   ├── IncomeModal.vue        # + checkbox 'pinjam dari pihak luar'
+│   │   ├── ExpenseModal.vue       # Multi-wallet + talangan + checkbox 'piutang'
 │   │   ├── TransferModal.vue
 │   │   ├── TransactionItem.vue
 │   │   ├── TransactionDetailModal.vue
-│   │   └── TransactionFilterModal.vue  # Filter lanjutan
+│   │   └── TransactionFilterModal.vue
 │   ├── debt/                      # Debt-related
-│   │   ├── DebtFormModal.vue
+│   │   ├── DebtFormModal.vue      # Mode external / internal
 │   │   └── DebtPaymentModal.vue
-│   └── report/                    # Report-related
-│       ├── MonthPicker.vue        # Dropdown pilih bulan
-│       └── BarChart.vue           # Pure CSS horizontal bar
+│   ├── report/                    # Report-related
+│   │   ├── MonthPicker.vue
+│   │   └── BarChart.vue           # Pure CSS horizontal bar
+│   └── settings/                  # Settings-related
+│       └── ResetDataModal.vue     # Reset data dengan konfirmasi typed text
 │
 ├── composables/                   # Vue composables
-│   └── useAutoSync.js             # Global sync lifecycle
+│   └── useAutoSync.js             # Global sync lifecycle + watch auth state
 │
 ├── constants/                     # Domain constants
 │   ├── app.js                     # APP_NAME, CURRENCY, LOCALE
 │   ├── transaction.js             # TX_TYPE, TX_TYPE_LABEL, TX_TYPE_COLOR
 │   ├── debt.js                    # DEBT_TYPE, DEBT_SOURCE, LABELS
-│   ├── wallet.js                  # WALLET_COLORS, CURATED_WALLET_ICONS
-│   ├── category.js                # DEFAULT_CATEGORIES
+│   ├── wallet.js                  # WALLET_COLORS, CURATED_WALLET_ICONS, TEMPORARY_TYPE
+│   ├── category.js                # DEFAULT_CATEGORIES (8 kategori)
 │   ├── sync.js                    # SYNC_INTERVAL_MS, SYNC_TABLES, dsb
 │   └── index.js                   # Barrel export
 │
@@ -125,12 +141,14 @@ src/
 │
 ├── lib/                           # Pure utilities
 │   ├── supabase.js                # Supabase client
-│   ├── balance.js                 # computeBalances (pure function)
+│   ├── balance.js                 # computeBalances, computeTotalReal
 │   ├── format.js                  # formatCurrency, formatDate, formatDateISO
 │   ├── sync-engine.js             # Unified sync (push + pull + retry)
-│   ├── filter.js                  # Filter & summarize transaksi (pure)
-│   ├── csv.js                     # Generate & download CSV (pure)
-│   └── report.js                  # Monthly report compute (pure)
+│   ├── filter.js                  # Filter & summarize transaksi
+│   ├── csv.js                     # Generate & download CSV
+│   ├── report.js                  # Monthly report compute
+│   ├── wallet-temporary.js        # Helper wallet temporer
+│   └── wallet-debt.js             # Query utang/piutang per wallet
 │
 ├── repositories/                  # Data access layer (Dexie only)
 │   ├── base.repo.js               # createRepo factory
@@ -145,16 +163,17 @@ src/
 │   └── index.js                   # Barrel export
 │
 ├── services/                      # Business logic layer
-│   ├── wallet.service.js          # save, softDelete
+│   ├── wallet.service.js          # save, softDelete, createTemporary, findOrCreateTemporary
 │   ├── category.service.js        # save, softDelete, seedDefaults
-│   ├── transaction.service.js     # createIncome, createExpense (multi-wallet + loan),
-│   │                              #   createTransfer, softDelete
-│   ├── debt.service.js            # create, pay, softDelete
+│   ├── transaction.service.js     # createIncome, createExpense (split loan),
+│   │                              #   createIncomeWithBorrower, createExpenseWithBorrower
+│   ├── debt.service.js            # create (internal), createWithExternalParty, pay, softDelete
+│   ├── data-reset.service.js      # resetTransactions, resetAll, countData
 │   └── index.js                   # Barrel export
 │
 ├── stores/                        # Pinia stores
-│   ├── auth.js                    # Session, signIn, signUp, signOut
-│   ├── wallet.js                  # wallets, loadLocal, upsert, sync
+│   ├── auth.js                    # Session, signIn, signUp, signOut, auth hardening
+│   ├── wallet.js                  # wallets, realWallets, temporaryWallets
 │   ├── category.js                # categories, income/expense split
 │   └── transaction.js             # transactions, splits, debts, balances
 │
@@ -162,13 +181,16 @@ src/
 │   └── index.js                   # Vue Router + auth guard
 │
 └── views/                         # Page-level components
-    ├── Login.vue
-    ├── Dashboard.vue
-    ├── Debts.vue
-    ├── Categories.vue
-    ├── SplitBills.vue
-    ├── Transactions.vue           # Halaman riwayat lengkap + filter + export
-    └── Reports.vue                # Laporan bulanan (3 tab)
+    ├── Login.vue                  # + password toggle, error detail
+    ├── Dashboard.vue              # Ringkasan, wallet list, recent transactions
+    ├── Wallets.vue                # List dompet + Pihak Luar section
+    ├── WalletDetail.vue           # Detail per dompet + utang/piutang + transaksi
+    ├── Debts.vue                  # Utang/piutang (internal & eksternal)
+    ├── Categories.vue             # CRUD kategori
+    ├── SplitBills.vue             # History split payment (read-only)
+    ├── Transactions.vue           # Full history + filter + export CSV
+    ├── Reports.vue                # Laporan bulanan (3 tab)
+    └── Settings.vue               # Menu settings + reset data
 ```
 
 ---
@@ -192,7 +214,9 @@ Contoh:
 · TX_TYPE.INCOME = 'income' — dipakai di service, store, component
 · WALLET_COLORS — array 16 warna untuk picker
 · CURATED_WALLET_ICONS — 46 nama ikon Lucide
-· DEFAULT_CATEGORIES — 13 kategori seed
+· TEMPORARY_TYPE.DEBTOR / CREDITOR — tipe wallet temporer
+· TEMPORARY_COLORS — warna wallet temporer (oranye/hijau)
+· DEFAULT_CATEGORIES — 8 kategori seed (3 income, 5 expense)
 · SYNC_INTERVAL_MS = 30_000 — interval auto-sync
 
 Aturan:
@@ -207,12 +231,14 @@ Tanggung jawab: Fungsi murni (pure functions) & utility yang tidak terkait state
 
 File Isi
 supabase.js Supabase client singleton
-balance.js computeBalances() — hitung saldo per wallet dari transaksi
+balance.js computeBalances(), computeTotalReal()
 format.js formatCurrency(), formatDate(), formatDateISO()
 sync-engine.js syncTable(), syncMany(), syncTableWithRetry()
 filter.js applyFilter(), summarize(), defaultFilter(), preset date ranges
 csv.js generateCSV(), downloadCSV(), exportTransactionsCSV()
 report.js computeMonthlyReport(), getAvailableMonths(), monthLabel()
+wallet-temporary.js buildTemporaryWalletPayload(), isTemporaryWallet(), isRealWallet(), temporaryLabel()
+wallet-debt.js getWalletDebts(), hasActiveDebt()
 
 Aturan:
 
@@ -259,13 +285,20 @@ Tanggung jawab: Business logic, orkestrasi, atomic multi-table operations.
 
 Contoh:
 
-· transactionService.createExpense() — buat transaction + splits + debt internal (atomic via db.transaction)
-· debtService.pay() — buat debt_payment + update remaining (atomic)
-· categoryService.seedDefaults() — cek count + bulkPut 13 kategori
+· transactionService.createExpense() — buat transaction + splits + debt internal (atomic via db.transaction), fix arah debt: primary = debtor, talangan = creditor
+· transactionService.createIncomeWithBorrower() — income + auto-create wallet temporer + debt utang
+· transactionService.createExpenseWithBorrower() — expense + auto-create wallet temporer + debt piutang
+· debtService.create() — buat debt internal dengan debtor_wallet_id + creditor_wallet_id eksplisit
+· debtService.createWithExternalParty() — auto-create wallet temporer untuk pihak luar
+· debtService.pay() — buat debt_payment + update remaining + cleanup wallet temporer kalau lunas
+· categoryService.seedDefaults() — cek count + bulkPut 8 kategori
+· dataResetService.resetTransactions() — soft delete txs, splits, debts, payments + orphan temp wallets
+· dataResetService.resetAll() — resetTransactions + soft delete wallets + categories + re-seed default
 
 Aturan:
 
 · ✅ Boleh import repositories, constants, db (untuk atomic)
+· ✅ Boleh dynamic import service lain untuk avoid circular dependency
 · ❌ Tidak boleh import Pinia store
 · ❌ Tidak boleh import component
 
@@ -312,7 +345,7 @@ Aturan:
 Tanggung jawab: Reusable composition function untuk lifecycle Reactivity.
 
 Composable Fungsi
-useAutoSync() Timer sync global + event online/offline, pakai reference counting
+useAutoSync() Timer sync global + event online/offline + watch auth state (auto-sync saat login)
 
 Cara pakai:
 
@@ -344,17 +377,17 @@ Aturan:
 4.1 Tabel
 
 Tabel Deskripsi
-wallets Dompet (kas, rekening, e-wallet, tabungan)
+wallets Dompet (real & temporer). Field is_temporary & temporary_type untuk pihak luar
 categories Kategori income/expense
 transactions Header transaksi (income / expense / transfer)
 transaction_splits Detail multi-wallet payment per transaksi
-debts Utang / piutang (eksternal & internal)
+debts Utang / piutang (semua internal). Field debtor_wallet_id + creditor_wallet_id eksplisit
 debt_payments Riwayat pelunasan
-split_bills (Persiapan, belum dipakai) Header split bill
-split_bill_members (Persiapan, belum dipakai) Anggota split
+split_bills (Deprecated) Tidak dipakai — Split Bill diimplementasikan di ExpenseModal
+split_bill_members (Deprecated) Sama seperti di atas
 sync_meta Metadata sync (last_sync_at per tabel)
 
-Catatan: Tabel split_bills & split_bill_members dibuat saat Fase 2 sebagai persiapan, tapi tidak dipakai karena Split Bill akhirnya diimplementasikan sebagai fitur otomatis di ExpenseModal (bukan modul DB terpisah). Bisa dihapus di masa depan atau dipakai untuk fitur lain.
+Catatan: Tabel split_bills & split_bill_members bisa dihapus di masa depan atau dipakai untuk fitur lain. Semua debt sekarang internal (external party di-representasikan sebagai wallet temporer).
 
 4.2 Kolom Standar Sync
 
@@ -392,6 +425,24 @@ for each row execute function public.set_updated_at();
 ```
 
 Fungsi set_updated_at() mengeset NEW.updated_at = now(). Efek: setiap UPDATE (dari mana pun, termasuk sync) otomatis update timestamp.
+
+4.5 Wallet Temporary Model
+
+Untuk mendukung pihak eksternal (utang/piutang ke orang luar) dengan model seragam:
+
+· Pihak luar di-representasikan sebagai wallets dengan is_temporary: true
+· Wallet temporer punya field temporary_type:
+  · debtor — pihak ini berutang ke kita (piutang dari sudut pandang kita)
+  · creditor — kita berutang ke pihak ini (utang dari sudut pandang kita)
+· Wallet temporer saldo 0 — tidak mempengaruhi total saldo
+· Auto-delete saat debt-nya lunas (cleanup logic di debt.service.pay)
+
+Lifecycle:
+
+1. User input pinjaman dari pihak luar (via IncomeModal checkbox atau DebtFormModal)
+2. Sistem auto-create wallet temporer (jika belum ada) via findOrCreateTemporary
+3. Debt dibuat dengan arah eksplisit: debtor_wallet_id + creditor_wallet_id
+4. Saat pelunasan lunas → debt.service._cleanupTemporaryWallets() cek apakah wallet temporer masih punya debt aktif. Kalau tidak → soft delete
 
 ---
 
@@ -453,6 +504,7 @@ composables/useAutoSync.js mengelola:
 
 · Timer: setInterval(syncAll, 30_000) — sync tiap 30 detik
 · Event online: saat window emit online, sync langsung
+· Watch auth: saat user baru login (auth.isAuthenticated false → true), trigger sync langsung
 · Reference counting: timer hanya 1 instance meski dipanggil dari banyak component
 · Anti-dobel: kalau sedang sync, skip cycle berikutnya
 
@@ -474,20 +526,20 @@ Kalau 2 device edit row yang sama:
 2. Device B update jam 10:00:05
 3. Sync keduanya → Device B menang (updated_at lebih baru)
 
-Keterbatasan: LWW tidak merge field. Kalau A edit name dan B edit color, hasilnya hanya salah satu yang bertahan. Untuk aplikasi keuangan dengan mayoritas operasi append (bukan edit field bersamaan), LWW cukup andal.
+Keterbatasan: LWW tidak merge field. Kalau A edit name dan B edit color, hasilnya hanya salah satu yang bertahan. Untuk aplikasi keuangan dengan mayoritas operasi append, LWW cukup andal.
 
 5.5 Soft Delete
 
 Kenapa bukan hard delete?
 
-Kalau device A hapus row, device B harus tahu bahwa row itu dihapus. Hard delete tidak bisa disinkronkan (row hilang di A, tapi masih ada di B).
+Kalau device A hapus row, device B harus tahu bahwa row itu dihapus. Hard delete tidak bisa disinkronkan.
 
 Solusi: is_deleted = true.
 
 · Row tetap ada di Supabase
 · Filter di Dexie & UI: !is_deleted
 · Sync: row terkirim seperti biasa, hanya flag yang berubah
-· Histori & referensi tidak rusak (misal debt yang sudah dihapus, pelunasan tetap valid)
+· Histori & referensi tidak rusak
 
 ---
 
@@ -518,9 +570,9 @@ export const useXStore = defineStore('x', () => {
 
 Store State Actions
 auth user, session, ready init, signIn, signUp, signOut
-wallet wallets, loading loadLocal, upsertWallet, softDeleteWallet, syncWallets
+wallet wallets, realWallets, temporaryWallets, loading loadLocal, upsertWallet, softDeleteWallet, createTemporary, findOrCreateTemporary, syncWallets
 category categories, loading loadLocal, upsertCategory, softDeleteCategory, syncCategories
-transaction transactions, splits, debts, debtPayments, loading loadLocal, balances, createIncome, createExpense, createTransfer, softDeleteTransaction, createDebt, payDebt, softDeleteDebt, paymentsOf, syncAll
+transaction transactions, splits, debts, debtPayments, loading loadLocal, balances, createIncome, createExpense, createTransfer, createIncomeWithBorrower, createExpenseWithBorrower, softDeleteTransaction, createDebt, createDebtWithExternalParty, payDebt, softDeleteDebt, paymentsOf, debtsOfWallet, syncAll
 
 6.3 Balance Computation
 
@@ -549,11 +601,12 @@ saldo[wallet] = initial_balance
               - Σ expense_splits (wallet_id = wallet)
               + Σ transfer_in (to_wallet_id = wallet)
               - Σ transfer_out (wallet_id = wallet)
-              + debt_eksternal_utang (counterpart_wallet_id = wallet)
-              - debt_eksternal_piutang (counterpart_wallet_id = wallet)
-              ± pelunasan (sesuai tipe debt)
-              ± debt_internal (sesuai arah)
+              ± pelunasan (debtor bayar → debtor turun, creditor naik)
 ```
+
+⚠️ Catatan kritis: Debt creation tidak mengubah saldo (karena sudah di-handle oleh opening transaction income/expense yang dibuat bersamaan). Hanya pelunasan yang mengubah saldo.
+
+computeTotalReal(balances, wallets) — total saldo wallet real saja (exclude temporer). Dipakai di Dashboard untuk "Total Saldo Aset".
 
 Detail lengkap ada di source lib/balance.js.
 
@@ -632,7 +685,7 @@ Interface CategorySelect:
 />
 ```
 
-Interface sama seperti versi grid lama — jadi pemanggil (IncomeModal, ExpenseModal) tidak perlu diubah saat migrasi.
+Interface sama seperti versi grid lama — jadi pemanggil tidak perlu diubah saat migrasi.
 
 7.5 ExpenseModal — Split Payment Otomatis
 
@@ -642,12 +695,15 @@ Form state:
 
 ```js
 {
-  amount: '',                    // total belanja
+  amount: '',
   date: formatDateISO(),
   category_id: null,
   note: '',
-  primary: { wallet_id: null, amount: '' },  // dompet utama
-  talangan: []                   // [{ wallet_id, amount, is_loan }]
+  primary: { wallet_id: null, amount: '' },
+  talangan: [],           // [{ wallet_id, amount, is_loan }]
+  isReceivable: false,    // checkbox piutang ke pihak luar
+  party_name: '',
+  due_date: ''
 }
 ```
 
@@ -661,14 +717,15 @@ Alur:
    · Setiap talangan default is_loan: true
 4. Talangan bisa diedit manual (dompet & nominal) atau toggled pinjam
 5. Preview saldo before/after ditampilkan
-6. Submit → panggil txStore.createExpense() dengan payments = [primary, ...talangan]
+6. Checkbox "Catat sebagai piutang" — kalau dicentang, submit ke createExpenseWithBorrower. Disabled kalau split payment aktif.
+7. Submit → panggil txStore.createExpense() atau createExpenseWithBorrower
 
 Karakteristik:
 
 · Talangan hidden kalau saldo cukup (tidak ada section)
 · Talangan muncul otomatis kalau saldo kurang
 · Kalau masih kurang setelah semua dompet dipakai → warning merah + submit disabled
-· Reuse transactionService.createExpense() (logic backend sama dengan Fase 3)
+· Arah debt dari split loan: primary = debtor (peminjam), talangan = creditor (pemberi pinjam). Karena primary yang butuh uang tambahan.
 
 7.6 Filter Pattern (Halaman Transaksi)
 
@@ -693,7 +750,7 @@ Modal picker:
 
 Default filter: Bulan ini, semua jenis transaksi.
 
-Badge indicator: Kalau ada filter aktif (selain default), tampil dot biru di tombol Filter + banner "Filter aktif" di bawah summary.
+Badge indicator: Kalau ada filter aktif (selain default), tampil dot biru di tombol Filter + banner "Filter aktif".
 
 7.7 Reports Pattern (Laporan Bulanan)
 
@@ -725,32 +782,34 @@ Karakteristik:
 · Support dot warna dompet
 · Kalau item kosong → tampil empty text
 
-Data flow:
-
-```js
-const report = computed(() =>
-  computeMonthlyReport({
-    transactions: txStore.activeTransactions,
-    wallets: walletStore.wallets,
-    categories: catStore.categories,
-    year: selectedMonth.value.year,
-    month: selectedMonth.value.month
-  })
-)
-```
-
 Auto-select bulan: Saat onMounted, iterasi getAvailableMonths() dan pilih bulan terbaru yang punya count > 0.
 
-Delta calculation:
+7.8 Wallet Temporary Model (UI)
 
-```js
-function pctChange(curr, prev) {
-  if (!prev || prev === 0) return null
-  return ((curr - prev) / prev) * 100
-}
-```
+Halaman /wallets:
 
-null = tidak ditampilkan (karena tidak ada data bulan lalu untuk bandingkan).
+· Section "Dompet Saya" — list wallet real (non-temporer)
+· Section "Pihak Luar" — list wallet temporer yang punya debt aktif
+  · Badge oranye "Kita berutang" — untuk wallet temporer tipe creditor
+  · Badge hijau "Dia berutang" — untuk wallet temporer tipe debtor
+  · Total remaining dan jumlah debt per wallet
+· Tombol "+ Tambah Dompet" (untuk create wallet real)
+· Klik wallet → navigate ke /wallets/:id
+
+Halaman /wallets/:id (WalletDetail):
+
+· Card saldo besar dengan warna dompet
+· Section "Utang & Piutang" via WalletDebtInfo.vue:
+  · List utang (merah): wallet ini berutang ke siapa
+  · List piutang (hijau): siapa yang berutang ke wallet ini
+  · Tap item → buka DebtPaymentModal untuk pelunasan
+· Section "Transaksi Terbaru" — hanya untuk wallet real
+· Menu ⋯ → Edit / Hapus dompet
+
+WalletSelect filter:
+
+· Default includeTemporary: false — tidak menampilkan wallet temporer di picker transaksi biasa
+· Bisa override includeTemporary: true untuk kasus khusus (belum dipakai saat ini)
 
 ---
 
@@ -803,16 +862,16 @@ Setelah deploy ke HTTPS (Vercel), browser akan menampilkan ikon Install di addre
 
 9.1 Skema SQL
 
-Full schema ada di dokumentasi setup (fase 1-4). 8 tabel dengan RLS aktif:
+Full schema ada di dokumentasi setup (fase 1-4 + wallet-temporary). 8 tabel dengan RLS aktif:
 
-· wallets
+· wallets (dengan is_temporary, temporary_type)
 · categories
 · transactions
 · transaction_splits
-· debts
+· debts (dengan debtor_wallet_id, creditor_wallet_id)
 · debt_payments
-· split_bills (persiapan, belum dipakai)
-· split_bill_members (persiapan, belum dipakai)
+· split_bills (deprecated)
+· split_bill_members (deprecated)
 
 9.2 RLS Policy (contoh)
 
@@ -824,7 +883,7 @@ create policy "wallets_all_own" on public.wallets
   with check (auth.uid() = user_id);
 ```
 
-Pola sama untuk semua tabel. Detail per-tabel ada di SQL setup.
+Pola sama untuk semua tabel.
 
 9.3 Auth Flow
 
@@ -943,43 +1002,56 @@ Sebelum deploy, verifikasi:
 ☐ Tambah dompet → muncul
 ☐ Edit dompet → update
 ☐ Hapus dompet → hilang dari list (soft delete)
-☐ Saldo gabungan = jumlah saldo semua dompet aktif
+☐ Saldo gabungan = jumlah saldo semua dompet real aktif
 
-13.3 Category
+13.3 Wallet Temporary
 
+☐ Pinjam dari pihak luar (IncomeModal checkbox) → wallet temporer dibuat
+☐ Wallet temporer muncul di section "Pihak Luar" di /wallets
+☐ Badge "Kita berutang" (oranye) / "Dia berutang" (hijau) benar
+☐ Klik wallet temporer → detail dengan utang/piutang
+☐ Lunasi debt → wallet temporer auto-hilang dari list
+☐ Wallet temporer tidak muncul di WalletSelect (picker transaksi)
+
+13.4 Category
+
+☐ User baru dapat 8 kategori default (3 income, 5 expense)
 ☐ Tambah kategori → muncul di list
 ☐ Edit kategori → update
 ☐ Hapus kategori → hilang dari list
 ☐ Kategori baru langsung tersedia di CategorySelect
 
-13.4 Transaction
+13.5 Transaction
 
 ☐ Income → saldo naik
 ☐ Expense single-wallet → saldo turun
 ☐ Expense multi-wallet (saldo kurang) → talangan auto-muncul
-☐ Expense multi-wallet + loan ON → saldo terpotong + debt internal
-☐ Expense multi-wallet + loan OFF → saldo terpotong, tidak ada debt
+☐ Expense multi-wallet + loan ON → debt dibuat dengan arah primary = debtor, talangan = creditor
+☐ Pelunasan debt split loan → saldo kembali sesuai (D1=100k, D2=30k di skenario uji)
 ☐ Transfer → saldo pindah
 ☐ Hapus transaksi → saldo kembali
 
-13.5 Debt
+13.6 Debt
 
-☐ Catat utang eksternal → saldo naik, muncul di tab Utang
-☐ Catat piutang eksternal → saldo turun, muncul di tab Piutang
-☐ Catat utang internal → saldo pindah antar dompet
+☐ Catat utang eksternal → wallet temporer dibuat, saldo naik
+☐ Catat piutang eksternal → wallet temporer dibuat, saldo turun
+☐ Catat utang internal (antar wallet real) → saldo pindah
 ☐ Pelunasan cicilan → sisa berkurang
-☐ Pelunasan lunas → status Lunas
+☐ Pelunasan lunas → status Lunas + wallet temporer cleanup
+☐ Tab Utang / Piutang menampilkan badge "internal" / "eksternal"
+☐ Rename wallet → nama di debt list ikut berubah (lookup real-time)
 
-13.6 Split Payment
+13.7 Split Payment
 
 ☐ Split dengan saldo cukup → section talangan tersembunyi
 ☐ Split dengan saldo kurang → section talangan muncul otomatis
 ☐ Toggle pinjam ON/OFF → behavior berbeda (debt vs tidak)
 ☐ Multi-talangan muncul saat masih kurang
 ☐ Semua dompet terpakai masih kurang → warning + submit disabled
+☐ Checkbox "Catat sebagai piutang" disabled saat split payment aktif
 ☐ Buka /split-bills → history tampil (read-only)
 
-13.7 Filter & Export CSV
+13.8 Filter & Export CSV
 
 ☐ Buka /transactions → default filter bulan ini
 ☐ Quick range (Hari ini, 7 hari, 30 hari, Bulan ini, Bulan lalu) → tanggal auto-isi
@@ -987,47 +1059,48 @@ Sebelum deploy, verifikasi:
 ☐ Filter dompet & kategori → filter bekerja
 ☐ Search catatan → filter bekerja
 ☐ Badge dot muncul saat filter aktif
-☐ Banner "Filter aktif — X transaksi" muncul
-☐ Tombol Hapus reset ke default
 ☐ Tombol Download → file .csv ter-download
-☐ CSV berisi transaksi sesuai filter aktif (bukan semua)
-☐ Nama kategori & dompet ter-resolve (bukan UUID)
-☐ Buka di Excel → escaping benar (koma, kutip, newline)
+☐ CSV berisi transaksi sesuai filter aktif
 ☐ Toast feedback muncul setelah export
 
-13.8 Reports
+13.9 Reports
 
-☐ Buka /reports → default bulan ini / bulan terbaru yang punya data
-☐ Tab Ringkasan:
-  ☐ Card Pemasukan + delta % (kalau ada bulan lalu)
-  ☐ Card Pengeluaran + delta %
-  ☐ Card Net (surplus hijau / defisit merah)
-  ☐ Total transaksi + total transfer
-☐ Tab Kategori:
-  ☐ Bar chart pengeluaran per kategori (merah)
-  ☐ Bar chart pemasukan per kategori (hijau)
-  ☐ Sort descending by total
-☐ Tab Dompet:
-  ☐ Bar chart pengeluaran per dompet
-  ☐ Bar chart pemasukan per dompet
-  ☐ Bar menggunakan warna dompet asli
-☐ Ganti bulan di dropdown → semua tab update
+☐ Buka /reports → default bulan ini / terbaru
+☐ Tab Ringkasan: card Pemasukan/Pengeluaran/Net + delta %
+☐ Tab Kategori: bar chart per kategori
+☐ Tab Dompet: bar chart per dompet
+☐ Ganti bulan → semua tab update
 ☐ Bulan kosong → empty state
 ☐ Bar kecil tetap terlihat (min 3%)
 
-13.9 Sync & Offline
+13.10 Reset Data
+
+☐ Settings → "Reset Transaksi" → input "HAPUS" → reset
+  · Transaksi, utang, pelunasan dihapus
+  · Wallet + kategori dipertahankan
+  · Saldo dompet kembali ke initial_balance
+☐ Settings → "Reset Semua Data" → input "RESET SEMUA" → reset
+  · Semua data dihapus (transaksi, wallet, kategori)
+  · 8 kategori default di-seed ulang
+  · Dashboard kosong, total saldo Rp 0
+☐ Tombol reset disabled sampai text typed correctly
+☐ Toast hijau muncul setelah reset
+☐ Sync ke Supabase setelah reset
+
+13.11 Sync & Offline
 
 ☐ Offline → tambah data → tetap sukses (Dexie)
 ☐ Online → data ter-sync ke Supabase dalam 30 detik
 ☐ Multi-device → login di 2 browser → data sinkron
 ☐ Soft delete → row di Supabase masih ada dengan is_deleted: true
+☐ Auto-sync saat login (watch auth.isAuthenticated)
 
-13.10 PWA
+13.12 PWA
 
 ☐ Tombol Install muncul di Chrome
 ☐ Aplikasi bisa dibuka offline
 ☐ Update otomatis (registerType: autoUpdate)
-☐ Uninstall & reinstall dari Chrome → data balik setelah login (sync dari Supabase)
+☐ Uninstall & reinstall → data balik setelah login
 
 ---
 
@@ -1046,10 +1119,26 @@ Sebelum deploy, verifikasi:
 15. Riwayat Revisi
 
 Tanggal Perubahan
-2026-11-11 Dokumen dibuat. Mencakup arsitektur lengkap pasca-refactor SoC (constants, lib, repos, services, stores, composables).
-2026-11-11 Revisi 1: Restore formatting markdown yang rusak. Update struktur folder: tambah CategoryPickerModal.vue, components/category/, views/Categories.vue, views/SplitBills.vue; hapus folder components/split-bill/. Tambah subsection 7.4 (Category Picker Pattern) & 7.5 (ExpenseModal Split Payment Otomatis). Update testing checklist.
-2026-11-11 Revisi 2: Fase 6 selesai. Update struktur folder: tambah lib/filter.js, lib/csv.js, lib/report.js, components/transaction/TransactionFilterModal.vue, components/report/MonthPicker.vue, components/report/BarChart.vue, views/Transactions.vue, views/Reports.vue. Tambah subsection 7.6 (Filter Pattern), 7.7 (Reports Pattern). Update section 3.2 (Lib) dengan 3 file baru. Update section 9.4 (Auth Hardening). Update section 12.4 (Update PWA di HP). Tambah testing 13.7 (Filter & Export) & 13.8 (Reports); renumber sync & PWA jadi 13.9 & 13.10.
+2026-11-11 Dokumen dibuat. Mencakup arsitektur lengkap pasca-refactor SoC.
+2026-11-11 Revisi 1: Restore formatting markdown. Tambah CategoryPickerModal, components/category/, views/Categories.vue, views/SplitBills.vue. Hapus folder split-bill/. Subsection 7.4 & 7.5. Update testing.
+2026-11-11 Revisi 2: Fase 6 (Filter, Export CSV, Reports). Subsection 7.6 & 7.7. Auth hardening. PWA update flow.
+2026-11-12 Revisi 3: Wallet Temporary Model + Reset Data. Tambah: BottomNav, Wallets.vue, WalletDetail.vue, WalletDebtInfo.vue, ResetDataModal.vue, data-reset.service.js, wallet-temporary.js, wallet-debt.js, settings/. Subsection 4.5 (Wallet Temporary Model), 7.8 (Wallet Temporary UI). Update 6.2 (store actions baru), 6.3 (rumus balance + catatan debt creation), 13.3 (Wallet Temporary), 13.10 (Reset Data). Renumber 13.11 & 13.12. Update struktur folder. Update testing checklist lengkap.
 
 ---
 
 © Alda 2026
+
+```
+
+---
+
+## ✅ Setelah Timpa File
+
+1. Timpa `ARCHITECTURE.md` dengan kode di atas
+2. Verifikasi:
+   ```bash
+   wc -l ARCHITECTURE.md
+   # Harus > 900 baris
+```
+
+---
